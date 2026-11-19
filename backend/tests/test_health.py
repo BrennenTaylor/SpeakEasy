@@ -23,4 +23,5 @@ def test_health_does_not_require_a_database(tmp_path, monkeypatch) -> None:
     with TestClient(create_app()) as client:
         assert client.get("/api/health").status_code == 200
     assert not (tmp_path / "absent.db").exists()
+    assert list(tmp_path.iterdir()) == []
     get_settings.cache_clear()

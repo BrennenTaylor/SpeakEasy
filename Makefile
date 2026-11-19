@@ -1,4 +1,4 @@
-PYTHON ?= $(shell command -v python3.12 >/dev/null 2>&1 && echo python3.12 || echo python3)
+PYTHON ?= python3.12
 NPM ?= npm
 BACKEND := backend
 FRONTEND := frontend
