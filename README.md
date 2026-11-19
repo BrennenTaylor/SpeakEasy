@@ -42,10 +42,10 @@ The local development database is SQLite and lives at `backend/data/app.db` (git
 
 ## Troubleshooting
 
-- **Python version mismatch:** If `python3 --version` reports 3.10 or another unsupported version, use `make setup` which explicitly searches for and uses `python3.12` (or set `make setup PYTHON=/path/to/python3.12`).
+- **Python version mismatch:** If `python3 --version` reports 3.10 or another unsupported version, `make setup` uses `python3.12` by default; override with `make setup PYTHON=/path/to/python3.12`.
 - **Node version mismatch:** If `node --version` reports Node 12 or an older version, run `nvm use` in the repository root to switch to the supported version defined in `.nvmrc` (Node 24).
 - **Port conflicts (8000 or 5173):** If port 8000 is in use, check for an existing uvicorn process (`lsof -i :8000` or `pgrep -f uvicorn`). If port 5173 is in use, check for an existing Vite process (`lsof -i :5173`).
-- **"Could not reach the server":** The frontend displays this error when the backend API is not running or unreachable. It indicates the backend server is down, not a frontend bug. Start the backend with `make dev-backend` and click "Retry".
+- **"Could not reach the server":** The frontend displays this error when the backend API is not running or unreachable. It indicates the backend server is down, not a frontend bug. Start the backend with `make dev-backend` and click "Try again".
 
 ## Scope of this milestone
 
