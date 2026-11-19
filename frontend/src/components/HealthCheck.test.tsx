@@ -53,6 +53,15 @@ describe("HealthCheck", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/unexpected response/i);
   });
 
+  it("shows a timeout as an error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new DOMException("timed out", "TimeoutError")),
+    );
+    render(<HealthCheck />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/did not respond/i);
+  });
+
   it("keeps the retry button disabled while a request is in flight", async () => {
     const user = userEvent.setup();
     let resolve: (value: Response) => void = () => {};

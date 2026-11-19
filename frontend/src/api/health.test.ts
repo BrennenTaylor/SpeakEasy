@@ -11,6 +11,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("fetchHealth", () => {
@@ -41,4 +42,22 @@ describe("fetchHealth", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     await expect(fetchHealth()).rejects.toBeInstanceOf(ApiError);
   });
+
+  it("reports a timeout when the server never responds", async () => {
+    const timeout = new AbortController();
+    timeout.abort(new DOMException("timed out", "TimeoutError"));
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeout.signal);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        const signal = init?.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          if (signal?.aborted) reject(signal.reason);
+          else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      }),
+    );
+
+    await expect(fetchHealth()).rejects.toThrow(/did not respond/i);
+  }, 1000);
 });

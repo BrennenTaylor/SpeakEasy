@@ -48,3 +48,28 @@ def test_get_session_shares_cached_engine(monkeypatch, tmp_path) -> None:
         session2.close()
         _engine_for.cache_clear()
         get_settings.cache_clear()
+
+
+def test_build_engine_creates_missing_parent_directory(tmp_path) -> None:
+    db_path = tmp_path / "nested" / "dir" / "app.db"
+    engine = build_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT 1")).scalar_one() == 1
+        assert db_path.exists()
+    finally:
+        engine.dispose()
+        _engine_for.cache_clear()
+
+
+def test_relative_sqlite_path_is_anchored_to_backend(monkeypatch, tmp_path) -> None:
+    from app.core import db as db_module
+
+    monkeypatch.chdir(tmp_path)
+    engine = build_engine("sqlite:///./data/relative.db")
+    try:
+        assert engine.url.database == str(db_module._BACKEND_DIR / "data" / "relative.db")
+        assert not (tmp_path / "data").exists()
+    finally:
+        engine.dispose()
+        _engine_for.cache_clear()

@@ -17,7 +17,7 @@ help:
 setup: setup-backend setup-frontend
 
 $(BACKEND)/.venv/.installed: $(BACKEND)/pyproject.toml
-	$(PYTHON) -m venv $(BACKEND)/.venv
+	$(PYTHON) -m venv --clear $(BACKEND)/.venv
 	$(PY)/pip install --upgrade pip
 	$(PY)/pip install -e '$(BACKEND)[dev]'
 	@touch $@
