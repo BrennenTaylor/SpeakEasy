@@ -45,7 +45,7 @@ The local development database is SQLite and lives at `backend/data/app.db` (git
 - **Python version mismatch:** If `python3 --version` reports 3.10 or another unsupported version, `make setup` uses `python3.12` by default; override with `make setup PYTHON=/path/to/python3.12`.
 - **Node version mismatch:** If `node --version` reports Node 12 or an older version, run `nvm use` in the repository root to switch to the supported version defined in `.nvmrc` (Node 24).
 - **Port conflicts (8000 or 5173):** If port 8000 is in use, check for an existing uvicorn process (`lsof -i :8000` or `pgrep -f uvicorn`). If port 5173 is in use, check for an existing Vite process (`lsof -i :5173`).
-- **"Could not reach the server":** The frontend displays this error when the backend API is not running or unreachable. It indicates the backend server is down, not a frontend bug. Start the backend with `make dev-backend` and click "Try again".
+- **Backend connection errors (502 or "Could not reach the server"):** With `make dev-frontend` running and the backend stopped, the card displays `Server responded with 502` because the Vite dev proxy answers when the backend port is closed. "Could not reach the server" appears when the request reaches no server at all (such as a built app served without the API in front of it). Both indicate the backend is not running, not a frontend bug. Recover by starting the backend with `make dev-backend` and clicking "Try again".
 
 ## Scope of this milestone
 
