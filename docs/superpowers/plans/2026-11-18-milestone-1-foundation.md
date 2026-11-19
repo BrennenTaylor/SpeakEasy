@@ -6,7 +6,7 @@
 
 **Architecture:** Two top-level projects (`frontend/`, `backend/`) that keep their native tooling and lockfiles, with a thin root `Makefile` as the only command surface. All API routes live under `/api`; Vite proxies `/api` to `127.0.0.1:8000` in development, so no CORS configuration exists. Alembic ships from day one with an empty baseline revision — migration wiring is proven, domain schema is deferred to Milestone 2.
 
-**Tech Stack:** React 19 + TypeScript 7 + Vite 8 + Tailwind 4 (via `@tailwindcss/vite`), FastAPI 0.165 + Pydantic 2.14 + pydantic-settings, SQLAlchemy 2.1 + Alembic 1.20 on SQLite, pytest 9, Vitest 5 + Testing Library, Ruff + mypy, ESLint + Prettier.
+**Tech Stack:** React 19 + TypeScript 6 + Vite 8 + Tailwind 4 (via `@tailwindcss/vite`), FastAPI 0.165 + Pydantic 2.14 + pydantic-settings, SQLAlchemy 2.1 + Alembic 1.20 on SQLite, pytest 9, Vitest 5 + Testing Library, Ruff + mypy, ESLint + Prettier.
 
 **Spec:** `docs/superpowers/specs/2026-11-18-milestone-1-foundation-design.md`
 
@@ -759,7 +759,7 @@ Versions verified available on the registry as of 2026-11-18:
     "jsdom": "^31.0.1",
     "prettier": "^3.10.1",
     "tailwindcss": "^4.3.5",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.73.0",
     "vite": "^8.3.8",
     "vitest": "^5.1.1"
@@ -947,7 +947,7 @@ Expected: `1 passed`.
 - [ ] **Step 7: Verify typecheck, lint, format, and build**
 
 Run: `cd frontend && npx tsc --noEmit && npx eslint . && npx prettier --check . && npx vite build`
-Expected: all exit 0; `dist/` created and git-ignored. If TypeScript 7 rejects a compiler option above, fix the option, not the gate — and record the change in the commit message.
+Expected: all exit 0; `dist/` created and git-ignored. If TypeScript rejects a compiler option above, fix the option, not the gate — and record the change in the commit message.
 
 - [ ] **Step 8: Add frontend targets to the Makefile**
 

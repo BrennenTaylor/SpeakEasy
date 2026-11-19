@@ -45,3 +45,22 @@ lint-backend:
 
 typecheck-backend:
 	cd $(BACKEND) && .venv/bin/mypy app
+
+setup-frontend:
+	cd $(FRONTEND) && $(NPM) ci
+
+dev-frontend:
+	cd $(FRONTEND) && $(NPM) run dev
+
+test-frontend:
+	cd $(FRONTEND) && $(NPM) run test
+
+lint-frontend:
+	cd $(FRONTEND) && $(NPM) run lint && $(NPM) run format:check
+
+typecheck-frontend:
+	cd $(FRONTEND) && $(NPM) run typecheck
+
+build:
+	cd $(FRONTEND) && $(NPM) run build
+
