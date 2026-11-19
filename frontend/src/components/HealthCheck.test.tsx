@@ -11,6 +11,25 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function createAbortableFetch() {
+  return vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+    return new Promise((_resolve, reject) => {
+      const signal = init?.signal;
+      if (signal?.aborted) {
+        reject(new DOMException("The operation was aborted", "AbortError"));
+        return;
+      }
+      signal?.addEventListener(
+        "abort",
+        () => {
+          reject(new DOMException("The operation was aborted", "AbortError"));
+        },
+        { once: true },
+      );
+    });
+  });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -68,5 +87,62 @@ describe("HealthCheck", () => {
     resolve(jsonResponse({ status: "ok" }));
     await waitFor(() => expect(screen.getByRole("button", { name: /try again/i })).toBeEnabled());
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("suppresses error state when unmounted during initial check", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = createAbortableFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { unmount } = render(<HealthCheck />);
+    expect(screen.getByRole("status")).toHaveTextContent(/checking/i);
+
+    unmount();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+
+  it("suppresses error state when unmounted during a retry request", async () => {
+    const user = userEvent.setup();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    let callCount = 0;
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (callCount === 0) {
+        callCount++;
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      return new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(new DOMException("The operation was aborted", "AbortError"));
+          return;
+        }
+        signal?.addEventListener(
+          "abort",
+          () => {
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          },
+          { once: true },
+        );
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { unmount } = render(<HealthCheck />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/could not reach the server/i);
+
+    await user.click(screen.getByRole("button", { name: /try again/i }));
+    expect(screen.getByRole("status")).toHaveTextContent(/checking/i);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    unmount();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 });
