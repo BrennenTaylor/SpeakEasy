@@ -27,6 +27,16 @@ setup-backend: $(BACKEND)/.venv/.installed
 dev-backend:
 	cd $(BACKEND) && .venv/bin/uvicorn app.main:app --reload --port 8000
 
+migrate:
+	cd $(BACKEND) && .venv/bin/alembic upgrade head
+
+migration:
+	@test -n "$(m)" || (echo 'usage: make migration m="description"' && exit 1)
+	cd $(BACKEND) && .venv/bin/alembic revision --autogenerate -m "$(m)"
+
+check-migrations:
+	cd $(BACKEND) && .venv/bin/python scripts/check_migrations.py
+
 test-backend:
 	cd $(BACKEND) && .venv/bin/pytest -q
 
