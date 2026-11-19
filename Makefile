@@ -24,8 +24,14 @@ $(BACKEND)/.venv/.installed: $(BACKEND)/pyproject.toml
 
 setup-backend: $(BACKEND)/.venv/.installed
 
+setup-frontend:
+	cd $(FRONTEND) && $(NPM) ci
+
 dev-backend:
 	cd $(BACKEND) && .venv/bin/uvicorn app.main:app --reload --port 8000
+
+dev-frontend:
+	cd $(FRONTEND) && $(NPM) run dev
 
 migrate:
 	cd $(BACKEND) && .venv/bin/alembic upgrade head
@@ -37,30 +43,32 @@ migration:
 check-migrations:
 	cd $(BACKEND) && .venv/bin/python scripts/check_migrations.py
 
+test: test-backend test-frontend
+
 test-backend:
 	cd $(BACKEND) && .venv/bin/pytest -q
-
-lint-backend:
-	cd $(BACKEND) && .venv/bin/ruff check . && .venv/bin/ruff format --check .
-
-typecheck-backend:
-	cd $(BACKEND) && .venv/bin/mypy app
-
-setup-frontend:
-	cd $(FRONTEND) && $(NPM) ci
-
-dev-frontend:
-	cd $(FRONTEND) && $(NPM) run dev
 
 test-frontend:
 	cd $(FRONTEND) && $(NPM) run test
 
+lint: lint-backend lint-frontend
+
+lint-backend:
+	cd $(BACKEND) && .venv/bin/ruff check . && .venv/bin/ruff format --check .
+
 lint-frontend:
 	cd $(FRONTEND) && $(NPM) run lint && $(NPM) run format:check
+
+typecheck: typecheck-backend typecheck-frontend
+
+typecheck-backend:
+	cd $(BACKEND) && .venv/bin/mypy app
 
 typecheck-frontend:
 	cd $(FRONTEND) && $(NPM) run typecheck
 
 build:
 	cd $(FRONTEND) && $(NPM) run build
+
+check: lint typecheck test check-migrations build
 
