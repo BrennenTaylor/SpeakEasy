@@ -48,3 +48,28 @@ def client_with_db(session: Session) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def food_ids(client_with_db: TestClient) -> list[int]:
+    """Save two foods with different calories and return their ids."""
+    ids = []
+    for name, calories in (("Eggs", "140.0000"), ("Nuggets", "250.0000")):
+        payload = {
+            "name": name,
+            "brand": "Test brand",
+            "serving_label": "1 piece",
+            "serving_grams": "50",
+            "calories": calories,
+            "protein_g": "1.0000",
+            "carbs_g": "1.0000",
+            "fat_g": "1.0000",
+            "fiber_g": "1.0000",
+            "sugar_g": "1.0000",
+            "sodium_mg": "1.0000",
+            "confidence": "high",
+        }
+        response = client_with_db.post("/api/foods", json=payload)
+        assert response.status_code == 201
+        ids.append(response.json()["id"])
+    return ids
