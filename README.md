@@ -50,19 +50,20 @@ The local development database is SQLite and lives at `backend/data/app.db` (git
 
 ## Scope of this milestone
 
-Milestone 1 is strictly foundation infrastructure:
-- FastAPI backend skeleton with health endpoint (`GET /api/health`) and OpenAPI docs (`/docs`).
-- React + TypeScript frontend shell with mobile layout (390 px) and health status card with retry.
-- Database and migration foundation (SQLite + SQLAlchemy 2.0 + Alembic).
-- Unified developer tooling, automated checks (`make check`), and CI workflow definition.
+Milestone 2 adds meal logging on top of the foundation:
 
-**Out of scope for Milestone 1:**
-- No meal logging.
-- No AI integration or LLM prompting.
-- No external nutrition provider data or lookups.
-- No user authentication or multi-tenant authorization.
-- No service worker or offline caching.
-- No production deployment configuration or hosting.
+- Create food records from nutrition label values, including serving size, brand, source, confidence, and optional aliases.
+- Search foods by name or alias and edit existing records.
+- Log a food with a fractional serving and review all seven macros (calories, protein, carbs, fat, fiber, sugar, sodium) in a preview before saving.
+- Backend `Decimal` arithmetic produces meal totals, returned as JSON strings so precision survives the API boundary.
+- Nothing is written until the user confirms the preview. A preview request, an unknown food id, or an empty item list creates no meal, and logging works with no AI service configured.
+- Logged items keep an immutable nutrition snapshot, so meal history stays stable when the underlying food is edited later.
+
+**Coming next:**
+- AI interpretation of natural-language meal descriptions.
+- Branded web lookup through external nutrition providers.
+- Photo upload.
+- Nutrition insights.
 
 **CI:**
 GitHub Actions ran on the push to `main` (run `44674002201`) and succeeded. `.github/workflows/ci.yml` uses the same `make check` gate as local development.
