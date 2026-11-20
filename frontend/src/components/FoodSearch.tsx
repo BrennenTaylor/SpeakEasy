@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from "react";
 
-import { createFood, fetchFoods, type Food, type FoodCreate } from "../api/foods";
+import { createFood, fetchFoods, updateFood, type Food, type FoodCreate } from "../api/foods";
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : "Something went wrong";
 }
 
-function labelField(name: string, label: string, inputMode?: "decimal") {
+function labelField(name: string, label: string, inputMode?: "decimal", defaultValue?: string) {
   return (
     <div className="space-y-1">
       <label htmlFor={`food-${name}`} className="block text-xs font-medium text-gray-700">
@@ -17,6 +17,7 @@ function labelField(name: string, label: string, inputMode?: "decimal") {
         name={name}
         type="text"
         inputMode={inputMode}
+        defaultValue={defaultValue}
         className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
       />
     </div>
@@ -30,6 +31,7 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
   const [busy, setBusy] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingFood, setEditingFood] = useState<Food | null>(null);
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -45,6 +47,23 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function openCreateForm() {
+    setError(null);
+    setEditingFood(null);
+    setShowCreate(true);
+  }
+
+  function openEditForm(foodToEdit: Food) {
+    setError(null);
+    setEditingFood(foodToEdit);
+    setShowCreate(true);
+  }
+
+  function closeForm() {
+    setEditingFood(null);
+    setShowCreate(false);
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
@@ -74,9 +93,11 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
 
     setBusy(true);
     try {
-      const created = await createFood(payload);
-      setShowCreate(false);
-      onAdd(created);
+      const saved = editingFood
+        ? await updateFood(editingFood.id, payload)
+        : await createFood(payload);
+      closeForm();
+      onAdd(saved);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -145,14 +166,24 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
                 </p>
                 <p className="text-xs text-gray-600">{result.calories} kcal</p>
               </div>
-              <button
-                type="button"
-                aria-label={`Add ${result.name}`}
-                onClick={() => onAdd(result)}
-                className="shrink-0 rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Add
-              </button>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  aria-label={`Add ${result.name}`}
+                  onClick={() => onAdd(result)}
+                  className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Edit ${result.name}`}
+                  onClick={() => openEditForm(result)}
+                  className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Edit
+                </button>
+              </div>
             </li>
           ))}
         </ul>
@@ -161,31 +192,31 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
       {!showCreate ? (
         <button
           type="button"
-          onClick={() => {
-            setError(null);
-            setShowCreate(true);
-          }}
+          onClick={openCreateForm}
           className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
           Create a food from a label
         </button>
       ) : (
         <form
+          key={editingFood?.id ?? "new"}
           onSubmit={handleCreate}
           className="w-full min-w-0 space-y-3 rounded-lg border border-gray-200 bg-white p-3"
         >
-          <h3 className="text-sm font-medium text-gray-900">Create a food from a label</h3>
-          {labelField("name", "Name")}
-          {labelField("brand", "Brand")}
-          {labelField("serving_label", "Serving label")}
-          {labelField("serving_grams", "Serving grams", "decimal")}
-          {labelField("calories", "Calories", "decimal")}
-          {labelField("protein_g", "Protein (g)", "decimal")}
-          {labelField("carbs_g", "Carbs (g)", "decimal")}
-          {labelField("fat_g", "Fat (g)", "decimal")}
-          {labelField("fiber_g", "Fiber (g)", "decimal")}
-          {labelField("sugar_g", "Sugar (g)", "decimal")}
-          {labelField("sodium_mg", "Sodium (mg)", "decimal")}
+          <h3 className="text-sm font-medium text-gray-900">
+            {editingFood ? "Edit saved food" : "Create a food from a label"}
+          </h3>
+          {labelField("name", "Name", undefined, editingFood?.name)}
+          {labelField("brand", "Brand", undefined, editingFood?.brand)}
+          {labelField("serving_label", "Serving label", undefined, editingFood?.serving_label)}
+          {labelField("serving_grams", "Serving grams", "decimal", editingFood?.serving_grams)}
+          {labelField("calories", "Calories", "decimal", editingFood?.calories)}
+          {labelField("protein_g", "Protein (g)", "decimal", editingFood?.protein_g)}
+          {labelField("carbs_g", "Carbs (g)", "decimal", editingFood?.carbs_g)}
+          {labelField("fat_g", "Fat (g)", "decimal", editingFood?.fat_g)}
+          {labelField("fiber_g", "Fiber (g)", "decimal", editingFood?.fiber_g)}
+          {labelField("sugar_g", "Sugar (g)", "decimal", editingFood?.sugar_g)}
+          {labelField("sodium_mg", "Sodium (mg)", "decimal", editingFood?.sodium_mg)}
           <div className="space-y-1">
             <label htmlFor="food-confidence" className="block text-xs font-medium text-gray-700">
               Confidence
@@ -193,25 +224,30 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
             <select
               id="food-confidence"
               name="confidence"
-              defaultValue="high"
+              defaultValue={editingFood?.confidence ?? "high"}
               className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
             >
               <option value="high">High</option>
               <option value="low">Low</option>
             </select>
           </div>
-          {labelField("aliases", "Aliases (comma-separated)")}
+          {labelField(
+            "aliases",
+            "Aliases (comma-separated)",
+            undefined,
+            editingFood?.aliases.join(", "),
+          )}
           <div className="flex gap-2">
             <button
               type="submit"
               disabled={busy}
               className="shrink-0 rounded bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Create food
+              {editingFood ? "Save food" : "Create food"}
             </button>
             <button
               type="button"
-              onClick={() => setShowCreate(false)}
+              onClick={closeForm}
               className="shrink-0 rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Cancel

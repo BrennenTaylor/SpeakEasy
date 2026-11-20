@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Food } from "../api/foods";
 import {
@@ -40,6 +40,8 @@ export function MealLogger() {
 
   const previewControllerRef = useRef<AbortController | null>(null);
   const nextItemIdRef = useRef(1);
+  const itemsRef = useRef(items);
+  const wasBlankRef = useRef(true);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -65,7 +67,11 @@ export function MealLogger() {
     [],
   );
 
-  function runPreview(nextRawInput: string, nextItems: ReviewItem[]) {
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  const runPreview = useCallback((nextRawInput: string, nextItems: ReviewItem[]) => {
     previewControllerRef.current?.abort();
     previewControllerRef.current = null;
     if (nextItems.length === 0 || nextRawInput.trim() === "") {
@@ -83,10 +89,25 @@ export function MealLogger() {
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) {
+          setTotals(null);
           setError(errorMessage(cause));
         }
       });
-  }
+  }, []);
+
+  useEffect(() => {
+    const isBlank = rawInput.trim() === "";
+    const justBecameNonBlank = wasBlankRef.current && !isBlank;
+    wasBlankRef.current = isBlank;
+
+    if (isBlank || justBecameNonBlank) {
+      runPreview(rawInput, itemsRef.current);
+      return;
+    }
+
+    const timer = window.setTimeout(() => runPreview(rawInput, itemsRef.current), 250);
+    return () => window.clearTimeout(timer);
+  }, [rawInput, runPreview]);
 
   function handleAdd(food: Food) {
     const nextItems = [...items, { id: nextItemIdRef.current++, food, quantity: "1" }];
@@ -110,6 +131,9 @@ export function MealLogger() {
   }
 
   async function handleConfirm() {
+    if (rawInput.trim() === "" || items.length === 0 || totals === null || submitting) {
+      return;
+    }
     setError(null);
     setSubmitting(true);
     previewControllerRef.current?.abort();
@@ -157,6 +181,7 @@ export function MealLogger() {
         items={items}
         totals={totals}
         submitting={submitting}
+        canConfirm={rawInput.trim() !== "" && totals !== null}
         onQuantityChange={handleQuantityChange}
         onRemove={handleRemove}
         onConfirm={() => void handleConfirm()}

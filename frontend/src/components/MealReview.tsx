@@ -7,6 +7,7 @@ type Props = {
   items: ReviewItem[];
   totals: MacroStrings | null;
   submitting: boolean;
+  canConfirm: boolean;
   onQuantityChange: (itemId: number, quantity: string) => void;
   onRemove: (itemId: number) => void;
   onConfirm: () => void;
@@ -16,6 +17,7 @@ export function MealReview({
   items,
   totals,
   submitting,
+  canConfirm,
   onQuantityChange,
   onRemove,
   onConfirm,
@@ -83,7 +85,7 @@ export function MealReview({
       <button
         type="button"
         onClick={onConfirm}
-        disabled={submitting || items.length === 0}
+        disabled={submitting || items.length === 0 || !canConfirm}
         className="w-full rounded bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         Confirm

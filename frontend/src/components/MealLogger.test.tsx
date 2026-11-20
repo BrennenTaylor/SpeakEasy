@@ -67,6 +67,7 @@ const savedMeal: Meal = {
 
 type StubOptions = {
   preview?: MacroStrings;
+  previewStatus?: number;
   meals?: Meal[];
   confirmStatus?: number;
   confirmBody?: unknown;
@@ -90,7 +91,13 @@ function stubFetch(options: StubOptions = {}) {
       return Promise.resolve(jsonResponse([food]));
     }
     if (url.startsWith("/api/meals/preview")) {
-      return Promise.resolve(jsonResponse(options.preview ?? previewTotals));
+      const status = options.previewStatus ?? 200;
+      return Promise.resolve(
+        jsonResponse(
+          status >= 400 ? { detail: "preview failed" } : (options.preview ?? previewTotals),
+          status,
+        ),
+      );
     }
     if (url.startsWith("/api/meals?")) {
       return Promise.resolve(jsonResponse(storedMeals));
@@ -115,12 +122,16 @@ function findCall(stub: FetchStub, url: string, method: string) {
   return stub.mock.calls.find(([input, init]) => String(input) === url && init?.method === method);
 }
 
-function lastPreviewItems(stub: FetchStub) {
+function lastPreviewPayload(stub: FetchStub) {
   const calls = stub.mock.calls.filter(
     ([input, init]) => String(input) === "/api/meals/preview" && init?.method === "POST",
   );
   const body = String(calls.at(-1)?.[1]?.body ?? "{}");
-  return (JSON.parse(body) as { items?: unknown }).items;
+  return JSON.parse(body) as { raw_input?: unknown; items?: unknown };
+}
+
+function lastPreviewItems(stub: FetchStub) {
+  return lastPreviewPayload(stub).items;
 }
 
 function elementAt<T>(elements: T[], index: number): T {
@@ -293,5 +304,77 @@ describe("MealLogger", () => {
     await waitFor(() =>
       expect(lastPreviewItems(fetchMock)).toEqual([{ food_id: 1, quantity: "1", unit: "serving" }]),
     );
+  });
+
+  it("previews and enables Confirm when a description is typed after adding a food", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch();
+    render(<MealLogger />);
+
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    expect(confirm).toBeDisabled();
+
+    await addNuggets(user);
+    expect(confirm).toBeDisabled();
+    expect(findCall(fetchMock, "/api/meals/preview", "POST")).toBeUndefined();
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "two servings of nuggets",
+    );
+
+    await waitFor(() =>
+      expect(lastPreviewPayload(fetchMock).raw_input).toBe("two servings of nuggets"),
+    );
+    expect(screen.getByText("250.0000")).toBeInTheDocument();
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    await user.click(confirm);
+    expect(findCall(fetchMock, "/api/meals", "POST")).toBeDefined();
+  });
+
+  it("keeps Confirm disabled and does not save after the description is cleared", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch();
+    render(<MealLogger />);
+
+    const description = screen.getByRole("textbox", { name: /describe your meal/i });
+    await user.type(description, "two servings of nuggets");
+    await addNuggets(user);
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    await user.clear(description);
+
+    expect(confirm).toBeDisabled();
+    expect(screen.queryByText("250.0000")).not.toBeInTheDocument();
+    await user.click(confirm);
+    expect(findCall(fetchMock, "/api/meals", "POST")).toBeUndefined();
+  });
+
+  it("clears totals and blocks Confirm when a preview fails", async () => {
+    const user = userEvent.setup();
+    const options: StubOptions = {};
+    const fetchMock = stubFetch(options);
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "two servings of nuggets",
+    );
+    await addNuggets(user);
+    await waitFor(() => expect(screen.getByText("250.0000")).toBeInTheDocument());
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    options.previewStatus = 503;
+    const quantity = screen.getByRole("textbox", { name: /quantity for costco nuggets/i });
+    await user.clear(quantity);
+    await user.type(quantity, "2");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/503/i);
+    await waitFor(() => expect(screen.queryByText("250.0000")).not.toBeInTheDocument());
+    expect(confirm).toBeDisabled();
+    expect(findCall(fetchMock, "/api/meals", "POST")).toBeUndefined();
   });
 });

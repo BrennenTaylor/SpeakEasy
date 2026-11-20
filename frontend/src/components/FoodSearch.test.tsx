@@ -95,6 +95,52 @@ describe("FoodSearch", () => {
     );
   });
 
+  it("pre-fills the form from a result and sends a PATCH with changed values", async () => {
+    const user = userEvent.setup();
+    const updated = { ...food, name: "Costco nuggets (updated)", calories: "275.0000" };
+    const fetchMock = vi.fn((input: unknown, init?: RequestInit): Promise<Response> => {
+      const method = init?.method ?? "GET";
+      if (String(input).startsWith("/api/foods?") && method === "GET") {
+        return Promise.resolve(jsonResponse([food]));
+      }
+      if (String(input) === "/api/foods/1" && method === "PATCH") {
+        return Promise.resolve(jsonResponse(updated));
+      }
+      return Promise.resolve(jsonResponse({ detail: "not found" }, 404));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onAdd = vi.fn();
+
+    render(<FoodSearch onAdd={onAdd} />);
+
+    await user.type(screen.getByRole("textbox", { name: /search foods/i }), "nuggets");
+    await user.click(screen.getByRole("button", { name: /^search$/i }));
+    expect(await screen.findByText("Costco nuggets")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /edit costco nuggets/i }));
+
+    expect(screen.getByRole("textbox", { name: /^name$/i })).toHaveValue("Costco nuggets");
+    expect(screen.getByRole("textbox", { name: /^calories$/i })).toHaveValue("250.0000");
+    expect(screen.getByRole("textbox", { name: /aliases/i })).toHaveValue("those costco nuggets");
+    expect(screen.getByRole("combobox", { name: /confidence/i })).toHaveValue("high");
+
+    await user.clear(screen.getByRole("textbox", { name: /^name$/i }));
+    await user.type(screen.getByRole("textbox", { name: /^name$/i }), updated.name);
+    await user.clear(screen.getByRole("textbox", { name: /^calories$/i }));
+    await user.type(screen.getByRole("textbox", { name: /^calories$/i }), updated.calories);
+    await user.click(screen.getByRole("button", { name: /^save food$/i }));
+
+    await waitFor(() => expect(onAdd).toHaveBeenCalledWith(updated));
+    const patchCall = fetchMock.mock.calls.find(
+      ([input, init]) => String(input) === "/api/foods/1" && init?.method === "PATCH",
+    );
+    expect(patchCall).toBeDefined();
+    const body = JSON.parse(String(patchCall?.[1]?.body));
+    expect(body.name).toBe(updated.name);
+    expect(body.calories).toBe(updated.calories);
+    expect(body.source).toBe("user_label");
+  });
+
   it("shows an error when search fails", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ detail: "unavailable" }, 503)));
