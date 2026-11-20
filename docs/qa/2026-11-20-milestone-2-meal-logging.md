@@ -30,9 +30,12 @@ Expected:
 
 ```bash
 make setup
+make migrate        # creates the foods/meals tables in this checkout's local DB
 make dev-backend    # terminal 1
 make dev-frontend   # terminal 2
 ```
+
+Verify the backend is ready with `curl -s http://localhost:8000/api/meals`; it should return `[]` or an existing list, not a 500.
 
 Open http://localhost:5173 in a browser viewport set to **390 px wide**.
 
