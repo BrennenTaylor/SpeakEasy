@@ -1,14 +1,4 @@
-import type { MacroStrings, Meal } from "../api/meals";
-
-const MACRO_ROWS: { key: keyof MacroStrings; label: string }[] = [
-  { key: "calories", label: "Calories" },
-  { key: "protein_g", label: "Protein (g)" },
-  { key: "carbs_g", label: "Carbs (g)" },
-  { key: "fat_g", label: "Fat (g)" },
-  { key: "fiber_g", label: "Fiber (g)" },
-  { key: "sugar_g", label: "Sugar (g)" },
-  { key: "sodium_mg", label: "Sodium (mg)" },
-];
+import { MACRO_ROWS, type Meal } from "../api/meals";
 
 export function RecentMeals({ meals }: { meals: Meal[] }) {
   return (

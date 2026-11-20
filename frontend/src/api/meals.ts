@@ -37,15 +37,17 @@ export type MealCreate = {
   items: { food_id: number; quantity: string; unit?: "serving" }[];
 };
 
-const MACRO_KEYS = [
-  "calories",
-  "protein_g",
-  "carbs_g",
-  "fat_g",
-  "fiber_g",
-  "sugar_g",
-  "sodium_mg",
-] as const;
+export const MACRO_ROWS = [
+  { key: "calories", label: "Calories" },
+  { key: "protein_g", label: "Protein (g)" },
+  { key: "carbs_g", label: "Carbs (g)" },
+  { key: "fat_g", label: "Fat (g)" },
+  { key: "fiber_g", label: "Fiber (g)" },
+  { key: "sugar_g", label: "Sugar (g)" },
+  { key: "sodium_mg", label: "Sodium (mg)" },
+] as const satisfies readonly { key: keyof MacroStrings; label: string }[];
+
+const MACRO_KEYS = MACRO_ROWS.map((row) => row.key);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

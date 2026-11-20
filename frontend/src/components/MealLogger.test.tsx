@@ -115,6 +115,22 @@ function findCall(stub: FetchStub, url: string, method: string) {
   return stub.mock.calls.find(([input, init]) => String(input) === url && init?.method === method);
 }
 
+function lastPreviewItems(stub: FetchStub) {
+  const calls = stub.mock.calls.filter(
+    ([input, init]) => String(input) === "/api/meals/preview" && init?.method === "POST",
+  );
+  const body = String(calls.at(-1)?.[1]?.body ?? "{}");
+  return (JSON.parse(body) as { items?: unknown }).items;
+}
+
+function elementAt<T>(elements: T[], index: number): T {
+  const element = elements[index];
+  if (!element) {
+    throw new Error(`Expected an element at index ${index}`);
+  }
+  return element;
+}
+
 async function addNuggets(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByRole("textbox", { name: /search foods/i }), "nuggets");
   await user.click(screen.getByRole("button", { name: /^search$/i }));
@@ -122,6 +138,7 @@ async function addNuggets(user: ReturnType<typeof userEvent.setup>) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -218,5 +235,63 @@ describe("MealLogger", () => {
     expect(await screen.findByText(savedMeal.raw_input)).toBeInTheDocument();
     expect(screen.getByText(savedMeal.eaten_at)).toBeInTheDocument();
     expect(screen.getByText("500.0000")).toBeInTheDocument();
+  });
+
+  it("keeps two copies of the same food as independent rows", async () => {
+    const user = userEvent.setup();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = stubFetch();
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "two servings of nuggets",
+    );
+    await addNuggets(user);
+    await user.click(screen.getByRole("button", { name: /add costco nuggets/i }));
+
+    const quantities = screen.getAllByRole("textbox", { name: /quantity for costco nuggets/i });
+    expect(quantities).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /remove costco nuggets/i })).toHaveLength(2);
+
+    await user.clear(elementAt(quantities, 0));
+    await user.type(elementAt(quantities, 0), "2");
+
+    expect(elementAt(quantities, 0)).toHaveValue("2");
+    expect(elementAt(quantities, 1)).toHaveValue("1");
+    await waitFor(() =>
+      expect(lastPreviewItems(fetchMock)).toEqual([
+        { food_id: 1, quantity: "2", unit: "serving" },
+        { food_id: 1, quantity: "1", unit: "serving" },
+      ]),
+    );
+    expect(errorSpy.mock.calls.flat().join(" ")).not.toMatch(/same key/i);
+  });
+
+  it("removing one copy of a food leaves the other row intact", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch();
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "two servings of nuggets",
+    );
+    await addNuggets(user);
+    await user.click(screen.getByRole("button", { name: /add costco nuggets/i }));
+
+    const quantities = screen.getAllByRole("textbox", { name: /quantity for costco nuggets/i });
+    await user.clear(elementAt(quantities, 0));
+    await user.type(elementAt(quantities, 0), "2");
+    await user.click(
+      elementAt(screen.getAllByRole("button", { name: /remove costco nuggets/i }), 0),
+    );
+
+    const remaining = screen.getAllByRole("textbox", { name: /quantity for costco nuggets/i });
+    expect(remaining).toHaveLength(1);
+    expect(elementAt(remaining, 0)).toHaveValue("1");
+    await waitFor(() =>
+      expect(lastPreviewItems(fetchMock)).toEqual([{ food_id: 1, quantity: "1", unit: "serving" }]),
+    );
   });
 });

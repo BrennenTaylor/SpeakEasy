@@ -39,6 +39,7 @@ export function MealLogger() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const previewControllerRef = useRef<AbortController | null>(null);
+  const nextItemIdRef = useRef(1);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -88,21 +89,21 @@ export function MealLogger() {
   }
 
   function handleAdd(food: Food) {
-    const nextItems = [...items, { food, quantity: "1" }];
+    const nextItems = [...items, { id: nextItemIdRef.current++, food, quantity: "1" }];
     setError(null);
     setItems(nextItems);
     runPreview(rawInput, nextItems);
   }
 
-  function handleQuantityChange(foodId: number, quantity: string) {
-    const nextItems = items.map((item) => (item.food.id === foodId ? { ...item, quantity } : item));
+  function handleQuantityChange(itemId: number, quantity: string) {
+    const nextItems = items.map((item) => (item.id === itemId ? { ...item, quantity } : item));
     setError(null);
     setItems(nextItems);
     runPreview(rawInput, nextItems);
   }
 
-  function handleRemove(foodId: number) {
-    const nextItems = items.filter((item) => item.food.id !== foodId);
+  function handleRemove(itemId: number) {
+    const nextItems = items.filter((item) => item.id !== itemId);
     setError(null);
     setItems(nextItems);
     runPreview(rawInput, nextItems);

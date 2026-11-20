@@ -1,26 +1,16 @@
 import type { Food } from "../api/foods";
-import type { MacroStrings } from "../api/meals";
+import { MACRO_ROWS, type MacroStrings } from "../api/meals";
 
-export type ReviewItem = { food: Food; quantity: string };
+export type ReviewItem = { id: number; food: Food; quantity: string };
 
 type Props = {
   items: ReviewItem[];
   totals: MacroStrings | null;
   submitting: boolean;
-  onQuantityChange: (foodId: number, quantity: string) => void;
-  onRemove: (foodId: number) => void;
+  onQuantityChange: (itemId: number, quantity: string) => void;
+  onRemove: (itemId: number) => void;
   onConfirm: () => void;
 };
-
-const MACRO_ROWS: { key: keyof MacroStrings; label: string }[] = [
-  { key: "calories", label: "Calories" },
-  { key: "protein_g", label: "Protein (g)" },
-  { key: "carbs_g", label: "Carbs (g)" },
-  { key: "fat_g", label: "Fat (g)" },
-  { key: "fiber_g", label: "Fiber (g)" },
-  { key: "sugar_g", label: "Sugar (g)" },
-  { key: "sodium_mg", label: "Sodium (mg)" },
-];
 
 export function MealReview({
   items,
@@ -40,9 +30,9 @@ export function MealReview({
         <p className="text-sm text-gray-600">Add a food to review this meal.</p>
       ) : (
         <ul className="space-y-2">
-          {items.map(({ food, quantity }) => (
+          {items.map(({ id, food, quantity }) => (
             <li
-              key={food.id}
+              key={id}
               className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-3"
             >
               <div className="min-w-0 flex-1">
@@ -60,14 +50,14 @@ export function MealReview({
                   inputMode="decimal"
                   value={quantity}
                   aria-label={`Quantity for ${food.name}`}
-                  onChange={(event) => onQuantityChange(food.id, event.target.value)}
+                  onChange={(event) => onQuantityChange(id, event.target.value)}
                   className="ml-1 w-12 rounded border border-gray-300 px-1.5 py-1 text-sm"
                 />
               </label>
               <button
                 type="button"
                 aria-label={`Remove ${food.name}`}
-                onClick={() => onRemove(food.id)}
+                onClick={() => onRemove(id)}
                 className="shrink-0 rounded border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
               >
                 Remove
