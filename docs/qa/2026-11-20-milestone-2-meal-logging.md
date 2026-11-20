@@ -9,13 +9,14 @@
 
 ## Automated gate
 
-From the repository root:
+From the root of any checkout that contains these changes (the `m2-meal-logging` branch, or `main` after merge):
 
 ```bash
-cd /home/brtayl/.local/share/opencode/worktree/8e66d7/m2-meal-logging
 nvm use
 make check
 ```
+
+The commands are checkout-agnostic. If `npm run lint` falls back to `/usr/bin/eslint` and reports `Cannot find module 'mkdirp'`, that checkout's `frontend/node_modules` install is incomplete; run `npm ci` in `frontend/` there first.
 
 Expected:
 
@@ -59,34 +60,35 @@ Open http://localhost:5173 in a browser viewport set to **390 px wide**.
 
 4. Click **Create food**.
 
-Expected: the form closes, the food appears in **Meal review**, and the totals show `250` calories plus the seven entered macro values.
+Expected: the form closes, the food appears in **Meal review**, and the totals show seven rows: calories `250.0000`, protein `10.0000`, carbs `20.0000`, fat `10.0000`, fiber `1.0000`, sugar `2.0000`, and sodium `300.0000`.
 
 ## Search by alias and verify backend scaling
 
-1. In **Search foods**, enter `nuggets` and click **Search**.
-2. Expected: `Test Nuggets` appears with `250 kcal`.
+1. In **Search foods**, enter `chicken nuggets` and click **Search**. This text is an alias, not part of the name `Test Nuggets`, so a result proves alias matching works.
+2. Expected: `Test Nuggets` appears with `250.0000 kcal`.
 3. Click **Add** so there are two independent rows.
 4. Expected totals with both rows at quantity `1`, in order calories/protein/carbs/fat/fiber/sugar/sodium:
 
-   `500 / 20 / 40 / 20 / 2 / 4 / 600`
+   `500.0000 / 20.0000 / 40.0000 / 20.0000 / 2.0000 / 4.0000 / 600.0000`
 
 5. Change the **first** row's quantity from `1` to `2`.
 6. Expected totals:
 
-   `750 / 30 / 60 / 30 / 3 / 6 / 900`
+   `750.0000 / 30.0000 / 60.0000 / 30.0000 / 3.0000 / 6.0000 / 900.0000`
 
 This confirms the backend scales the stored label values; the browser does not compute totals.
 
 ## Verify confirm gating and no early writes
 
-1. Before clicking **Confirm**, check **Recent meals** — the count must not change from previewing.
-2. Clear the description textarea.
-3. Expected: **Confirm** becomes disabled. Clicking it saves nothing.
-4. Re-enter the description.
-5. Expected: totals reappear and **Confirm** becomes enabled.
-6. Click **Confirm**.
-
-Expected: the draft clears and **Recent meals** gains one entry with the description and `750` calories plus the matching macros.
+1. Before previewing, run `curl -s http://localhost:8000/api/meals`. Expect `[]`, or the list of meals already present from earlier runs.
+2. Add foods and change quantities as above, but do not click **Confirm**.
+3. Run `curl -s http://localhost:8000/api/meals` again. Expect exactly the same list as step 1. The browser alone cannot prove this because **Recent meals** is not refetched during preview.
+4. Clear the description textarea.
+5. Expected: **Confirm** becomes disabled. Clicking it saves nothing.
+6. Re-enter the description.
+7. Expected: totals reappear and **Confirm** becomes enabled.
+8. Click **Confirm**.
+9. Run `curl -s http://localhost:8000/api/meals` again. Expected: exactly one new meal, with `raw_input` matching the description and `totals.calories` equal to `750.0000`. **Recent meals** also gains the entry.
 
 ## Verify saved-food editing and snapshot immutability
 
@@ -94,12 +96,11 @@ Expected: the draft clears and **Recent meals** gains one entry with the descrip
 2. Click **Edit** on `Test Nuggets`.
 3. Change Calories from `250` to `999`.
 4. Click **Save food**.
+5. Click **Search** again to refresh the result row. Expected: `Test Nuggets` now shows `999.0000 kcal`.
+6. In a second terminal, run `curl -s http://localhost:8000/api/meals`. Expected: the meal confirmed earlier still has `totals.calories` equal to `750.0000`, and its item still has `calories` equal to `250.0000`, even though the saved food now has `999.0000`.
+7. Optional: add the edited food to a new draft, confirm it, and check that the new meal uses `999.0000` while the old meal remains `250.0000`.
 
-Expected:
-
-- Search results show `999 kcal` for the edited food.
-- The already logged **Recent meal** still shows `750` calories and the original macro totals.
-- No historical meal values change.
+This reads the server's stored snapshots, so it cannot pass on stale browser state.
 
 Note: after saving an edit, the edited food is also added to the current draft. Remove it from **Meal review** if it gets in the way.
 

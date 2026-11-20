@@ -54,21 +54,20 @@ Write a self-contained runbook with these sections, in this order:
 
 1. `# Milestone 2 QA Steps`
 2. `## Scope` — PR #1 link, branch `m2-meal-logging`, and note that typing a meal sentence is stored as text but not AI-parsed in M2.
-3. `## Automated gate` — commands:
+3. `## Automated gate` — from the root of any checkout containing the change:
 
 ```bash
-cd /home/brtayl/.local/share/opencode/worktree/8e66d7/m2-meal-logging
 nvm use
 make check
 ```
 
-Expected: lint/format/mypy/typecheck pass; 28 backend tests, 45 frontend tests; migrations `head -> base -> head`; Vite build succeeds.
+Expected: lint/format/mypy/typecheck pass; 28 backend tests, 45 frontend tests; migrations `head -> base -> head`; Vite build succeeds. Add a note that a broken local `frontend/node_modules` can fall back to the system ESLint and should be repaired with `npm ci`.
 
 4. `## Start the app` — `make setup`, `make dev-backend`, `make dev-frontend`, open `http://localhost:5173` at 390 px wide.
-5. `## Create a food from a label` — exact values: `Test Nuggets`, `Test Brand`, `1 cup`, `100`, calories `250`, protein `10`, carbs `20`, fat `10`, fiber `1`, sugar `2`, sodium `300`, confidence `High`, aliases `nuggets, chicken nuggets`.
-6. `## Search by alias and verify backend scaling` — search `nuggets`; after two rows at qty 1 expect `500/20/40/20/2/4/600`; after changing first qty to `2` expect `750/30/60/30/3/6/900` for calories/protein/carbs/fat/fiber/sugar/sodium.
-7. `## Verify confirm gating and no early writes` — Recent meals unchanged before Confirm; clearing description disables Confirm; retyping restores totals; Confirm clears draft and adds one recent meal.
-8. `## Verify saved-food editing and snapshot immutability` — edit calories to `999`; search shows `999`; already logged meal still shows `750` and original macros.
+5. `## Create a food from a label` — exact values: `Test Nuggets`, `Test Brand`, `1 cup`, `100`, calories `250`, protein `10`, carbs `20`, fat `10`, fiber `1`, sugar `2`, sodium `300`, confidence `High`, aliases `nuggets, chicken nuggets`. Show the seven rendered totals with four decimals.
+6. `## Search by alias and verify backend scaling` — search `chicken nuggets` (not the food name); after two rows at qty 1 expect `500.0000/20.0000/40.0000/20.0000/2.0000/4.0000/600.0000`; after changing first qty to `2` expect `750.0000/30.0000/60.0000/30.0000/3.0000/6.0000/900.0000` for calories/protein/carbs/fat/fiber/sugar/sodium.
+7. `## Verify confirm gating and no early writes` — check `curl -s http://localhost:8000/api/meals` before and after preview (the browser list is not refetched during preview); clearing description disables Confirm; retyping restores totals; Confirm adds one new server-side meal.
+8. `## Verify saved-food editing and snapshot immutability` — edit calories to `999`; click Search again and expect `999.0000 kcal`; use `curl -s http://localhost:8000/api/meals` to prove the old meal still has total `750.0000` and snapshot `250.0000`.
 9. `## Error-state check` — stop backend, expect red alert; restart and search succeeds.
 10. `## Mobile layout check` — no horizontal scroll; Add/Edit/Remove/Confirm visible at 390 px.
 
@@ -87,6 +86,9 @@ Run:
 test -f docs/qa/2026-11-20-milestone-2-meal-logging.md
 grep -F "docs/qa/" AGENTS.md
 grep -F "snapshot immutability" docs/qa/2026-11-20-milestone-2-meal-logging.md
+grep -F "chicken nuggets" docs/qa/2026-11-20-milestone-2-meal-logging.md
+grep -F "curl -s http://localhost:8000/api/meals" docs/qa/2026-11-20-milestone-2-meal-logging.md
+! grep -F "/home/brtayl/.local/share/opencode/worktree" docs/qa/2026-11-20-milestone-2-meal-logging.md
 git status --short
 ```
 
@@ -104,23 +106,28 @@ Run: `git push origin m2-meal-logging`
 
 Expected: push succeeds to PR #1 branch.
 
-- [ ] **Step 7: Append the QA link to PR #1 without losing the existing body**
+- [ ] **Step 7: Append an absolute QA link to PR #1 without losing the existing body**
+
+Use the REST API; local `gh pr edit` fails on a deprecated Projects field. Replace the existing summary's relative QA sentence with an absolute blob URL:
+
+```bash
+gh pr view 1 --json body --jq .body > /tmp/opencode/m2-pr-body-current.md
+# Replace the relative link sentence with an absolute blob URL, then:
+gh api -X PATCH repos/BrennenTaylor/SpeakEasy/pulls/1 -F body=@/tmp/opencode/m2-pr-body-final.md
+```
+
+Expected: command exits 0; the existing PR summary remains.
+
+- [ ] **Step 8: Verify the PR link resolves**
 
 Run:
 
 ```bash
-gh pr view 1 --json body --jq .body > /tmp/opencode/m2-pr-body-current.md
-printf '\n\nSee [Milestone 2 QA Steps](docs/qa/2026-11-20-milestone-2-meal-logging.md) for user-runnable validation steps.\n' >> /tmp/opencode/m2-pr-body-current.md
-gh pr edit 1 --body-file /tmp/opencode/m2-pr-body-current.md
+gh pr view 1 --json body --jq .body | grep -F 'https://github.com/BrennenTaylor/SpeakEasy/blob/m2-meal-logging/docs/qa/2026-11-20-milestone-2-meal-logging.md'
+gh api 'repos/BrennenTaylor/SpeakEasy/contents/docs/qa/2026-11-20-milestone-2-meal-logging.md?ref=m2-meal-logging' > /dev/null
 ```
 
-Expected: commands exit 0; the existing PR summary remains.
-
-- [ ] **Step 8: Verify the PR link**
-
-Run: `gh pr view 1 --json body`
-
-Expected: body contains `docs/qa/2026-11-20-milestone-2-meal-logging.md`.
+Expected: both commands exit 0. Checking only for the path string is insufficient because relative links in PR bodies resolve under `/pull/`.
 
 - [ ] **Step 9: Self-review**
 
