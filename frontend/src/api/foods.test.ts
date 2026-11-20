@@ -90,4 +90,21 @@ describe("food client", () => {
 
     await expect(fetchFoods("nuggets")).rejects.toThrow("Server returned an unexpected response");
   });
+
+  it("accepts provider-sourced foods with a source URL", async () => {
+    const sourced = {
+      ...food,
+      source: "usda_fdc",
+      source_url: "https://fdc.example/170790",
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([sourced])));
+
+    await expect(fetchFoods("sandwich")).resolves.toEqual([sourced]);
+  });
+
+  it("rejects a food with an unknown source", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([{ ...food, source: "ai" }])));
+
+    await expect(fetchFoods("sandwich")).rejects.toThrow("Server returned an unexpected response");
+  });
 });
