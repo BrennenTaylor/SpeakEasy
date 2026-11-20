@@ -64,6 +64,6 @@ Milestone 1 is strictly foundation infrastructure:
 - No service worker or offline caching.
 - No production deployment configuration or hosting.
 
-**CI Note:**
-The GitHub Actions workflow in `.github/workflows/ci.yml` has **not been executed** because no git remote exists yet for this repository. It will become authoritative the first time it runs on a remote repository.
+**CI:**
+GitHub Actions ran on the push to `main` (run `44674002201`) and succeeded. `.github/workflows/ci.yml` uses the same `make check` gate as local development.
 
