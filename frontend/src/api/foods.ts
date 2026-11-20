@@ -1,12 +1,15 @@
 import { requestJson } from "./client";
 import { isMacroStrings, type MacroStrings } from "./meals";
 
+export type FoodSource = "user_label" | "usda_fdc" | "web_search";
+
 export type FoodCreate = MacroStrings & {
   name: string;
   brand: string;
   serving_label: string;
   serving_grams: string;
-  source?: "user_label";
+  source?: FoodSource;
+  source_url?: string | null;
   confidence: "high" | "low";
   aliases?: string[];
 };
@@ -17,11 +20,16 @@ export type Food = MacroStrings & {
   brand: string;
   serving_label: string;
   serving_grams: string;
-  source: "user_label";
+  source: FoodSource;
+  source_url?: string | null;
   confidence: "high" | "low";
   aliases: string[];
   created_at: string;
 };
+
+function isFoodSource(value: unknown): value is FoodSource {
+  return value === "user_label" || value === "usda_fdc" || value === "web_search";
+}
 
 function isFood(value: unknown): value is Food {
   if (!isMacroStrings(value)) {
@@ -33,7 +41,10 @@ function isFood(value: unknown): value is Food {
     typeof value.brand === "string" &&
     typeof value.serving_label === "string" &&
     typeof value.serving_grams === "string" &&
-    value.source === "user_label" &&
+    isFoodSource(value.source) &&
+    (value.source_url === undefined ||
+      value.source_url === null ||
+      typeof value.source_url === "string") &&
     (value.confidence === "high" || value.confidence === "low") &&
     Array.isArray(value.aliases) &&
     value.aliases.every((alias) => typeof alias === "string") &&

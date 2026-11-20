@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Food } from "../api/foods";
+import type { CandidateView } from "../api/interpretation";
 import {
   createMeal,
   fetchMeals,
@@ -9,7 +10,8 @@ import {
   type Meal,
   type MealCreate,
 } from "../api/meals";
-import { FoodSearch } from "./FoodSearch";
+import { FoodSearch, type FoodPrefill } from "./FoodSearch";
+import { MealCandidates } from "./MealCandidates";
 import { MealReview, type ReviewItem } from "./MealReview";
 import { RecentMeals } from "./RecentMeals";
 
@@ -29,6 +31,27 @@ function payloadFor(rawInput: string, items: ReviewItem[]): MealCreate {
   };
 }
 
+function prefillFromCandidate(candidate: CandidateView): FoodPrefill {
+  const text = (value: string | null) => value ?? "";
+  return {
+    name: candidate.name,
+    brand: candidate.brand,
+    serving_label: candidate.serving_label,
+    serving_grams: candidate.serving_grams,
+    calories: text(candidate.calories),
+    protein_g: text(candidate.protein_g),
+    carbs_g: text(candidate.carbs_g),
+    fat_g: text(candidate.fat_g),
+    fiber_g: text(candidate.fiber_g),
+    sugar_g: text(candidate.sugar_g),
+    sodium_mg: text(candidate.sodium_mg),
+    source: "user_label",
+    source_url: candidate.source_url,
+    confidence: "low",
+    aliases: [],
+  };
+}
+
 export function MealLogger() {
   const [rawInput, setRawInput] = useState("");
   const [items, setItems] = useState<ReviewItem[]>([]);
@@ -37,6 +60,7 @@ export function MealLogger() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [foodPrefill, setFoodPrefill] = useState<FoodPrefill | null>(null);
 
   const previewControllerRef = useRef<AbortController | null>(null);
   const nextItemIdRef = useRef(1);
@@ -109,8 +133,8 @@ export function MealLogger() {
     return () => window.clearTimeout(timer);
   }, [rawInput, runPreview]);
 
-  function handleAdd(food: Food) {
-    const nextItems = [...items, { id: nextItemIdRef.current++, food, quantity: "1" }];
+  function handleAdd(food: Food, quantity = "1") {
+    const nextItems = [...items, { id: nextItemIdRef.current++, food, quantity }];
     setError(null);
     setItems(nextItems);
     runPreview(rawInput, nextItems);
@@ -175,7 +199,17 @@ export function MealLogger() {
         />
       </div>
 
-      <FoodSearch onAdd={handleAdd} />
+      <MealCandidates
+        rawInput={rawInput}
+        onAdd={handleAdd}
+        onComplete={(candidate) => setFoodPrefill(prefillFromCandidate(candidate))}
+      />
+
+      <FoodSearch
+        onAdd={handleAdd}
+        prefill={foodPrefill}
+        onPrefillUsed={() => setFoodPrefill(null)}
+      />
 
       <MealReview
         items={items}

@@ -65,12 +65,41 @@ const savedMeal: Meal = {
   },
 };
 
+const candidateFood: Food = {
+  ...food,
+  id: 2,
+  name: "Chick-fil-A sandwich",
+  brand: "Chick-fil-A",
+  serving_label: "1 sandwich",
+  serving_grams: "187.0000",
+  source: "usda_fdc",
+  source_url: "https://fdc.example/170790",
+  confidence: "high",
+  calories: "465.6300",
+};
+
+const interpretationResult = {
+  candidates: [
+    {
+      ...candidateFood,
+      quantity: "1.0000",
+      source: "usda_fdc",
+      confidence: "high",
+      incomplete: false,
+      missing_fields: [],
+    },
+  ],
+  warnings: [],
+};
+
 type StubOptions = {
   preview?: MacroStrings;
   previewStatus?: number;
   meals?: Meal[];
   confirmStatus?: number;
   confirmBody?: unknown;
+  interpret?: unknown;
+  interpretStatus?: number;
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -87,8 +116,22 @@ function stubFetch(options: StubOptions = {}) {
     if (url.startsWith("/api/health")) {
       return Promise.resolve(jsonResponse({ status: "ok" }));
     }
+    if (url === "/api/foods" && init?.method === "POST") {
+      return Promise.resolve(jsonResponse(candidateFood, 201));
+    }
     if (url.startsWith("/api/foods")) {
       return Promise.resolve(jsonResponse([food]));
+    }
+    if (url === "/api/meals/interpret" && init?.method === "POST") {
+      const status = options.interpretStatus ?? 200;
+      return Promise.resolve(
+        jsonResponse(
+          status >= 400
+            ? { detail: "interpret failed" }
+            : (options.interpret ?? interpretationResult),
+          status,
+        ),
+      );
     }
     if (url.startsWith("/api/meals/preview")) {
       const status = options.previewStatus ?? 200;
@@ -376,5 +419,103 @@ describe("MealLogger", () => {
     await waitFor(() => expect(screen.queryByText("250.0000")).not.toBeInTheDocument());
     expect(confirm).toBeDisabled();
     expect(findCall(fetchMock, "/api/meals", "POST")).toBeUndefined();
+  });
+
+  it("adds an AI candidate to the review and confirms it", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch();
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "chick fil a sandwich",
+    );
+    await user.click(screen.getByRole("button", { name: /find foods/i }));
+    await user.click(await screen.findByRole("button", { name: `Add ${candidateFood.name}` }));
+
+    await waitFor(() =>
+      expect(lastPreviewItems(fetchMock)).toEqual([
+        { food_id: 2, quantity: "1.0000", unit: "serving" },
+      ]),
+    );
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    const createCall = findCall(fetchMock, "/api/meals", "POST");
+    expect(JSON.parse(String(createCall?.[1]?.body)).items).toEqual([
+      { food_id: 2, quantity: "1.0000", unit: "serving" },
+    ]);
+  });
+
+  it("keeps manual logging usable when interpretation is unavailable", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({ interpretStatus: 503 });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "two servings of nuggets",
+    );
+    await user.click(screen.getByRole("button", { name: /find foods/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/503/i);
+
+    await addNuggets(user);
+    await waitFor(() => expect(screen.getByText("250.0000")).toBeInTheDocument());
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    const createCall = findCall(fetchMock, "/api/meals", "POST");
+    expect(JSON.parse(String(createCall?.[1]?.body)).items).toEqual([
+      { food_id: 1, quantity: "1", unit: "serving" },
+    ]);
+  });
+
+  it("prefills the create form for an incomplete candidate without losing the source URL", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({
+      interpret: {
+        candidates: [
+          {
+            ...candidateFood,
+            source: "web_search",
+            source_url: "https://example.com/menu",
+            confidence: "low",
+            quantity: "1.0000",
+            incomplete: true,
+            missing_fields: ["sugar_g"],
+            sugar_g: null,
+          },
+        ],
+        warnings: [],
+      },
+    });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "a rare sandwich",
+    );
+    await user.click(screen.getByRole("button", { name: /find foods/i }));
+    await user.click(await screen.findByRole("button", { name: /complete with a label/i }));
+
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(candidateFood.name);
+    expect(screen.getByRole("textbox", { name: "Calories" })).toHaveValue(candidateFood.calories);
+    expect(screen.getByRole("textbox", { name: "Sugar (g)" })).toHaveValue("");
+
+    await user.type(screen.getByRole("textbox", { name: "Sugar (g)" }), "1");
+    await user.click(screen.getByRole("button", { name: "Create food" }));
+
+    await waitFor(() => {
+      const call = findCall(fetchMock, "/api/foods", "POST");
+      expect(call).toBeDefined();
+      const body = JSON.parse(String(call?.[1]?.body));
+      expect(body.source).toBe("user_label");
+      expect(body.source_url).toBe("https://example.com/menu");
+      expect(body.confidence).toBe("low");
+      expect(body.sugar_g).toBe("1");
+    });
   });
 });
