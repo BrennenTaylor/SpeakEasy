@@ -44,3 +44,4 @@ Secondary objectives: nutrition analysis and actionable insights.
 - Handle loading, empty, and error states.
 - Prioritize usability on mobile screens.
 - Prefer simple solutions over premature abstractions.
+- Every change must include user-runnable QA steps in a Markdown file under `docs/qa/` named `YYYY-MM-DD-<topic>.md`; link that file from the change summary or PR description.
