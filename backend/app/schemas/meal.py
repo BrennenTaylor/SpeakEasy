@@ -27,6 +27,7 @@ class MealItemRead(NutritionFields):
     serving_label: str
     serving_grams: DecimalText
     source: str
+    source_url: str | None = None
     confidence: str
     created_at: datetime
 
