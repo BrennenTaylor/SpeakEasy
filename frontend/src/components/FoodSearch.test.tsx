@@ -141,6 +141,48 @@ describe("FoodSearch", () => {
     expect(body.source).toBe("user_label");
   });
 
+  it("preserves provider provenance when editing a sourced food", async () => {
+    const user = userEvent.setup();
+    const sourcedFood = {
+      ...food,
+      id: 2,
+      name: "Chick-fil-A sandwich",
+      source: "usda_fdc",
+      source_url: "https://fdc.example/170790",
+      confidence: "low",
+    };
+    const fetchMock = vi.fn((input: unknown, init?: RequestInit): Promise<Response> => {
+      const method = init?.method ?? "GET";
+      if (String(input).startsWith("/api/foods?") && method === "GET") {
+        return Promise.resolve(jsonResponse([sourcedFood]));
+      }
+      if (String(input) === "/api/foods/2" && method === "PATCH") {
+        return Promise.resolve(jsonResponse(sourcedFood));
+      }
+      return Promise.resolve(jsonResponse({ detail: "not found" }, 404));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<FoodSearch onAdd={vi.fn()} />);
+
+    await user.type(screen.getByRole("textbox", { name: /search foods/i }), "sandwich");
+    await user.click(screen.getByRole("button", { name: /^search$/i }));
+    await user.click(await screen.findByRole("button", { name: /edit chick-fil-a sandwich/i }));
+
+    await user.clear(screen.getByRole("textbox", { name: /^name$/i }));
+    await user.type(screen.getByRole("textbox", { name: /^name$/i }), "Chick-fil-A sandwich B");
+    await user.click(screen.getByRole("button", { name: /^save food$/i }));
+
+    const patchCall = fetchMock.mock.calls.find(
+      ([input, init]) => String(input) === "/api/foods/2" && init?.method === "PATCH",
+    );
+    expect(patchCall).toBeDefined();
+    const body = JSON.parse(String(patchCall?.[1]?.body));
+    expect(body.source).toBe("usda_fdc");
+    expect(body.source_url).toBe("https://fdc.example/170790");
+    expect(body.confidence).toBe("low");
+  });
+
   it("shows an error when search fails", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ detail: "unavailable" }, 503)));

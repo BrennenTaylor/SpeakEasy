@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -101,6 +103,24 @@ def test_interpret_rejects_long_description(client_with_db: TestClient) -> None:
 def test_interpret_description_caps_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     resolved_view(monkeypatch)
     candidates = [stub_candidate(f"Food {index}") for index in range(6)]
+
+    result = interpret_description("lunch", StubInterpreter(candidates))
+
+    assert len(result.candidates) == 4
+
+
+def test_interpret_description_resolves_candidates_concurrently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    barrier = threading.Barrier(4, timeout=2)
+    view = CandidateView.model_validate(VIEW)
+
+    def fake_resolve(raw: RawCandidate, **kwargs: object) -> tuple[CandidateView, None]:
+        barrier.wait()
+        return view, None
+
+    monkeypatch.setattr(interpretation, "resolve_candidate", fake_resolve)
+    candidates = [stub_candidate(f"Food {index}") for index in range(4)]
 
     result = interpret_description("lunch", StubInterpreter(candidates))
 

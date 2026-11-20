@@ -68,6 +68,8 @@ Milestone 2 adds meal logging on top of the foundation:
 - Backend `Decimal` arithmetic produces meal totals, returned as JSON strings so precision survives the API boundary.
 - Nothing is written until the user confirms the preview. A preview request, an unknown food id, or an empty item list creates no meal, and logging works with no AI service configured.
 - Logged items keep an immutable nutrition snapshot, so meal history stays stable when the underlying food is edited later.
+- Optional AI interpretation returns sourced candidates from USDA FoodData Central or a linked web page; missing values stay null until the user supplies them.
+- Interpretation writes nothing on its own. Adding a candidate saves a food; the meal is saved only after the existing Confirm step.
 
 **Coming next:**
 - Recipe description and recipe text entry through the same lookup layer.

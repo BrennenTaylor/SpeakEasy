@@ -99,7 +99,7 @@ export function FoodSearch({ onAdd, prefill, onPrefillUsed }: Props) {
       fiber_g: text("fiber_g"),
       sugar_g: text("sugar_g"),
       sodium_mg: text("sodium_mg"),
-      source: "user_label",
+      source: editingFood?.source ?? "user_label",
       source_url: text("source_url") || null,
       confidence: text("confidence") === "low" ? "low" : "high",
       aliases: text("aliases")

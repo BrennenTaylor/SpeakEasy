@@ -20,6 +20,15 @@ function isCompleteCandidate(candidate: CandidateView): candidate is CompleteCan
   return !candidate.incomplete && MACRO_ROWS.every(({ key }) => typeof candidate[key] === "string");
 }
 
+function badgeFor(candidate: CandidateView): { label: string; low: boolean } {
+  if (candidate.source === "usda_fdc") {
+    return candidate.confidence === "high" && !candidate.incomplete
+      ? { label: "USDA · high confidence", low: false }
+      : { label: "USDA · low confidence", low: true };
+  }
+  return { label: "Web · low confidence", low: true };
+}
+
 function foodPayload(candidate: CompleteCandidate): FoodCreate {
   return {
     name: candidate.name,
@@ -52,6 +61,7 @@ function CandidateCard({
   const [quantity, setQuantity] = useState(candidate.quantity);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const badge = badgeFor(candidate);
 
   async function handleAdd() {
     if (!isCompleteCandidate(candidate)) {
@@ -81,12 +91,12 @@ function CandidateCard({
         </div>
         <span
           className={
-            candidate.source === "usda_fdc"
-              ? "shrink-0 rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-800"
-              : "shrink-0 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900"
+            badge.low
+              ? "shrink-0 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900"
+              : "shrink-0 rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-800"
           }
         >
-          {candidate.source === "usda_fdc" ? "USDA" : "Web · low confidence"}
+          {badge.label}
         </span>
       </div>
 

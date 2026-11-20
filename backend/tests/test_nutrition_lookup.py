@@ -24,7 +24,11 @@ def raw(**overrides: object) -> RawCandidate:
     return RawCandidate.model_validate({**BASE, **overrides})
 
 
-def _fdc_food(portion_grams: str, omit_sugar: bool = False) -> dict[str, object]:
+def _fdc_food(
+    portion_grams: str,
+    omit_sugar: bool = False,
+    extra_nutrients: list[tuple[str, str, str]] | None = None,
+) -> dict[str, object]:
     nutrients = [
         ("Energy", "KCAL", "249"),
         ("Protein", "G", "16.28"),
@@ -35,6 +39,7 @@ def _fdc_food(portion_grams: str, omit_sugar: bool = False) -> dict[str, object]
     ]
     if not omit_sugar:
         nutrients.append(("Sugars, Total including NLEA", "G", "0"))
+    nutrients.extend(extra_nutrients or [])
     return {
         "fdcId": 170790,
         "description": "CHICK-FIL-A, chicken sandwich",
@@ -89,6 +94,61 @@ def test_usda_portion_overrides_model_serving() -> None:
     assert str(view.serving_grams) == "187.0000"
     assert str(view.calories) == "465.6300"
     assert warning is None
+
+
+def test_canonical_nutrient_wins_over_similar_entries() -> None:
+    food = _fdc_food(
+        "187",
+        extra_nutrients=[
+            ("Sugars, added", "G", "9"),
+            ("Fiber, soluble", "G", "9"),
+            ("Carbohydrate, by summation", "G", "9"),
+        ],
+    )
+    food["foodNutrients"] = list(reversed(food["foodNutrients"]))
+    client = mock_client({"foods": [search_hit()]}, food)
+
+    view, warning = resolve_candidate(raw(), api_key="free-key", client=client)
+
+    assert warning is None
+    assert str(view.sugar_g) == "0.0000"
+    assert str(view.fiber_g) == "2.6180"
+    assert str(view.carbs_g) == "39.0643"
+
+
+def test_branded_food_with_serving_size_but_no_portions() -> None:
+    food = _fdc_food("187")
+    food["dataType"] = "Branded"
+    food.pop("foodPortions")
+    food["servingSize"] = 187
+    food["servingSizeUnit"] = "G"
+    food["householdServingFullText"] = "1 sandwich"
+    client = mock_client(
+        {"foods": [{**search_hit(), "dataType": "Branded"}]},
+        food,
+    )
+
+    view, warning = resolve_candidate(raw(), api_key="free-key", client=client)
+
+    assert warning is None
+    assert view.source == "usda_fdc"
+    assert view.serving_label == "1 sandwich"
+    assert str(view.serving_grams) == "187.0000"
+    assert str(view.calories) == "465.6300"
+
+
+def test_non_gram_serving_size_is_not_treated_as_grams() -> None:
+    food = _fdc_food("187")
+    food.pop("foodPortions")
+    food["servingSize"] = 187
+    food["servingSizeUnit"] = "ML"
+    client = mock_client({"foods": [search_hit()]}, food)
+
+    view, warning = resolve_candidate(raw(source_url=None), api_key="free-key", client=client)
+
+    assert view.source == "web_search"
+    assert view.incomplete is True
+    assert "USDA record had no portion" in warning
 
 
 def test_missing_sugar_is_flagged_not_zeroed() -> None:

@@ -43,7 +43,7 @@ Open <http://localhost:5173> in a 390 px-wide viewport. Verify the backend with 
 2. Click **Find foods**. Do not expect a call on every keystroke.
 3. Expected states, in order: `Finding foods…`, then one or more candidate cards. No card should appear before the button is clicked.
 4. On the Chick-fil-A candidate, verify:
-   - A source badge: `USDA` when FDC supplied all seven values, or `Web · low confidence` when the web fallback was used.
+   - A source badge: `USDA · high confidence` when FDC supplied all seven values, `USDA · low confidence` for an incomplete FDC record, or `Web · low confidence` when the web fallback was used.
    - A serving of `1 sandwich` / `187 g` for FDC food `170790`.
    - All seven macro values are present, not `—`: calories, protein, carbs, fat, fiber, sugar, sodium.
    - A `source_url` link on the card or in the saved food when inspected via `curl -s http://localhost:8000/api/foods`.

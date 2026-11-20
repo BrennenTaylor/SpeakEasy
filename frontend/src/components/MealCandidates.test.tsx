@@ -69,7 +69,7 @@ describe("MealCandidates", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /find foods/i }));
     expect(await screen.findByText(candidate.name)).toBeInTheDocument();
-    expect(screen.getByText("USDA")).toBeInTheDocument();
+    expect(screen.getByText(/usda · high confidence/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: `Add ${candidate.name}` }));
 
@@ -114,6 +114,26 @@ describe("MealCandidates", () => {
 
     expect(await screen.findByText(/web.*low confidence/i)).toBeInTheDocument();
     expect(screen.getByText("USDA lookup unavailable")).toBeInTheDocument();
+  });
+
+  it("shows low confidence for an incomplete USDA candidate", async () => {
+    mocks.interpretMeal.mockResolvedValue({
+      candidates: [
+        {
+          ...candidate,
+          incomplete: true,
+          missing_fields: ["sugar_g"],
+          sugar_g: null,
+          confidence: "low",
+        },
+      ],
+      warnings: [],
+    });
+    render(<MealCandidates rawInput="sandwich" onAdd={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /find foods/i }));
+
+    expect(await screen.findByText("USDA · low confidence")).toBeInTheDocument();
   });
 
   it("shows loading, empty, and error states", async () => {

@@ -11,6 +11,7 @@ from app.schemas.interpretation import CandidateView, RawCandidate
 _SEARCH_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 _FOOD_URL = "https://api.nal.usda.gov/fdc/v1/food"
 _FDC_PAGE = "https://fdc.nal.usda.gov/fdc-app.html#/food-details/{id}/nutrients"
+_LOOKUP_TIMEOUT_SECONDS = 3.0
 _ALLOWED_DATA_TYPES = {"Branded", "SR Legacy"}
 _NUTRIENT_MATCHES: dict[str, tuple[str, str]] = {
     "calories": ("energy", "KCAL"),
@@ -20,6 +21,21 @@ _NUTRIENT_MATCHES: dict[str, tuple[str, str]] = {
     "fiber_g": ("fiber", "G"),
     "sugar_g": ("sugars", "G"),
     "sodium_mg": ("sodium", "MG"),
+}
+_NUTRIENT_PREFERRED: dict[str, str] = {
+    "calories": "energy",
+    "protein_g": "protein",
+    "carbs_g": "carbohydrate, by difference",
+    "fat_g": "total lipid (fat)",
+    "fiber_g": "fiber, total dietary",
+    "sugar_g": "sugars, total including nlea",
+    "sodium_mg": "sodium, na",
+}
+_NUTRIENT_EXCLUDED: dict[str, tuple[str, ...]] = {
+    "carbs_g": ("by summation",),
+    "fat_g": ("saturated", "monounsaturated", "polyunsaturated", "trans"),
+    "fiber_g": ("soluble", "insoluble"),
+    "sugar_g": ("added",),
 }
 
 
@@ -62,11 +78,19 @@ def _portion(food: dict[str, Any]) -> tuple[str, Decimal] | None:
         modifier = str(portion.get("modifier") or "").strip()
         label = f"{_format_amount(amount)} {modifier or 'serving'}"
         return label, _quantize(grams)
+
+    serving_size = _decimal(food.get("servingSize"))
+    unit = str(food.get("servingSizeUnit") or "").upper()
+    if serving_size is not None and serving_size > 0 and unit == "G":
+        label = str(food.get("householdServingFullText") or "").strip()
+        if not label:
+            label = f"{_format_amount(serving_size)} g"
+        return label, _quantize(serving_size)
     return None
 
 
 def _nutrient_amounts(food: dict[str, Any], portion_grams: Decimal) -> dict[str, Decimal | None]:
-    amounts: dict[str, Decimal | None] = {field: None for field in MACRO_FIELDS}
+    best: dict[str, tuple[int, Decimal] | None] = {field: None for field in MACRO_FIELDS}
     factor = portion_grams / Decimal(100)
     for entry in _as_list(food.get("foodNutrients")) or []:
         item = _as_dict(entry)
@@ -79,10 +103,18 @@ def _nutrient_amounts(food: dict[str, Any], portion_grams: Decimal) -> dict[str,
         if amount is None:
             continue
         for field, (needle, expected_unit) in _NUTRIENT_MATCHES.items():
-            if amounts[field] is None and needle in name and unit == expected_unit:
-                amounts[field] = _quantize(amount * factor)
-                break
-    return amounts
+            if needle not in name or unit != expected_unit:
+                continue
+            if any(excluded in name for excluded in _NUTRIENT_EXCLUDED.get(field, ())):
+                continue
+            score = 2 if name == _NUTRIENT_PREFERRED.get(field) else 1
+            current = best[field]
+            if current is None or score > current[0]:
+                best[field] = (score, amount * factor)
+            break
+    return {
+        field: _quantize(match[1]) if match is not None else None for field, match in best.items()
+    }
 
 
 def _fdc_id(item: dict[str, Any]) -> int | None:
@@ -186,7 +218,7 @@ def _resolve_usda(
                 "pageSize": 5,
                 "dataType": list(_ALLOWED_DATA_TYPES),
             },
-            timeout=10.0,
+            timeout=_LOOKUP_TIMEOUT_SECONDS,
         )
     except httpx.HTTPError:
         return None, "USDA lookup unavailable"
@@ -212,7 +244,7 @@ def _resolve_usda(
         detail_response = client.get(
             f"{_FOOD_URL}/{fdc_id}",
             params={"api_key": api_key},
-            timeout=10.0,
+            timeout=_LOOKUP_TIMEOUT_SECONDS,
         )
     except httpx.HTTPError:
         return None, "USDA lookup unavailable"
