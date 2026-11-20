@@ -16,6 +16,14 @@ A phone-first calorie tracking PWA.
 
 Open http://localhost:5173 in a phone-sized window (390 px wide).
 
+## Optional AI interpretation
+
+Meal logging works without any AI service. To enable **Find foods** on a typed description, copy `backend/.env.example` to `backend/.env` and set `APP_OPENAI_API_KEY` (separate from ChatGPT Plus) and optionally `APP_USDA_API_KEY`. The default model is `gpt-6-luna`; set a monthly API billing limit. USDA's `DEMO_KEY` works but is rate-limited to 30 requests/hour.
+
+Interpretation is read-only until you click **Add** (saves a food) and **Confirm** (saves the meal). Without a key, the endpoint returns HTTP 503 with `AI interpretation is not configured`; manual search and label entry still work.
+
+See [AI meal interpretation QA steps](docs/qa/2026-11-20-ai-meal-interpretation.md) for key setup, live provider checks, no-write verification, and outage testing.
+
 ## Commands
 
 - `make setup` — Creates `backend/.venv`, installs backend dependencies, and runs `npm ci` for the frontend.
@@ -47,6 +55,8 @@ The local development database is SQLite and lives at `backend/data/app.db` (git
 - **Port conflicts (8000 or 5173):** If port 8000 is in use, check for an existing uvicorn process (`lsof -i :8000` or `pgrep -f uvicorn`). If port 5173 is in use, check for an existing Vite process (`lsof -i :5173`).
 - **Backend connection errors (502 or "Could not reach the server"):** With `make dev-frontend` running and the backend stopped, the card displays `Server responded with 502` because the Vite dev proxy answers when the backend port is closed. "Could not reach the server" appears when the request reaches no server at all (such as a built app served without the API in front of it). Both indicate the backend is not running, not a frontend bug. Recover by starting the backend with `make dev-backend` and clicking "Try again".
 - **"Server did not respond":** The health request timed out after 8 seconds. Check whether the backend process is paused or blocked, then click "Try again".
+- **"Find foods" shows 503:** With no `APP_OPENAI_API_KEY`, the backend returns `AI interpretation is not configured`; add the key to `backend/.env` and restart the backend. If a key is present but OpenAI times out or fails, the message is `AI interpretation is unavailable`. Manual food search and logging remain available in both cases.
+- **Frequent `USDA lookup unavailable` warnings:** The default `DEMO_KEY` allows 30 requests/hour. Set `APP_USDA_API_KEY` to a free FoodData Central key; web-sourced candidates are marked `Web · low confidence`.
 
 ## Scope of this milestone
 
@@ -60,8 +70,7 @@ Milestone 2 adds meal logging on top of the foundation:
 - Logged items keep an immutable nutrition snapshot, so meal history stays stable when the underlying food is edited later.
 
 **Coming next:**
-- AI interpretation of natural-language meal descriptions.
-- Branded web lookup through external nutrition providers.
+- Recipe description and recipe text entry through the same lookup layer.
 - Photo upload.
 - Nutrition insights.
 
