@@ -4,7 +4,7 @@
 
 The user wants to type a normal sentence — "chick fil a sandwich and a coke" — and have the app go find the nutrition data instead of making them search and type labels first. Milestone 2 built the save/confirm/snapshot machinery and deliberately deferred AI interpretation. This change adds that interpretation step on top of the existing `Food` and `Meal` tables, plus a real data lookup so the numbers are sourced rather than guessed.
 
-Success looks like: describe a meal, see candidate foods with their source and confidence, adjust a quantity, Confirm, and find the meal in Recent Meals with all seven macros and a source attached to every item. Typing a description still works with no AI key, and nothing is written until Confirm.
+Success looks like: describe a meal, see candidate foods with their source and confidence, adjust a quantity, Confirm, and find the meal in Recent Meals with all seven macros and a source attached to every item. Typing a description still works with no AI key, and **no meal** is written until Confirm. Saving a candidate as a `Food` when the user adds it is allowed and mirrors the existing manual flow, where creating a food from a label also writes before the meal is confirmed.
 
 ## Goals
 
@@ -26,7 +26,7 @@ Success looks like: describe a meal, see candidate foods with their source and c
 ## Anti-goals (what would make this a failure)
 
 - A logged meal whose calories came from the model's memory with no cited source.
-- A meal written to the database before the user pressed Confirm.
+- A meal written to the database before the user pressed Confirm. (`Food` rows may be written earlier, exactly as the manual label flow does today.)
 - The manual path breaking when the AI provider is down or unconfigured.
 - An API key or provider URL reachable from the browser.
 
@@ -65,16 +65,18 @@ No API key or cost, but weaker interpretation and extra local setup. The user ap
 
 - Add `backend/app/ai/__init__.py`, `backend/app/ai/provider.py` (a small `MealInterpreter` protocol with one `interpret(description: str) -> list[RawCandidate]` method), and `backend/app/ai/openai_provider.py`.
 - The adapter POSTs to the OpenAI Responses API with structured outputs and the web-search tool enabled. The prompt asks for food candidates with name, brand hint, serving label and grams, seven per-serving macro values, quantity in servings, and a source URL. It explicitly forbids meal totals and estimated values without a URL.
-- One request per interpretation, one retry maximum, fixed timeout from settings. No streaming, no conversation state.
+- One request per interpretation, at most four candidates, one retry **only** on connection or timeout errors (never on HTTP errors), and a provider timeout of 10 seconds. No streaming, no conversation state.
+- Interpretation stays synchronous: one POST, no background job or polling. The frontend passes a dedicated 30-second timeout to `requestJson` for this call, above the client's 8-second default, so the provider and USDA lookups can finish.
 - Tests mock HTTP; no test calls a live provider.
 
 ### Nutrition lookup adapter
 
 - Add `backend/app/services/nutrition_lookup.py` with `find_source(raw: RawCandidate) -> ResolvedCandidate`.
-- Query `GET https://api.nal.usda.gov/fdc/v1/foods/search` and then `/food/{fdcId}` using the configured key. Prefer `Branded` and `SR Legacy` results whose name matches the candidate name. Read nutrient amounts by nutrient id/name and unit; FDC values are per 100 g, so scale by the portion's gram weight with `Decimal` to get per-serving values.
+- Query `GET https://api.nal.usda.gov/fdc/v1/foods/search` and then `/food/{fdcId}` using the configured key. Prefer `Branded` and `SR Legacy` results whose name matches the candidate name. Read nutrient amounts by nutrient id/name and unit; FDC values are per 100 g, so scale by the gram weight of **the USDA record's own portion** with `Decimal` to get per-serving values. The model's serving label and grams are only matching hints, never the scaling basis. Store the USDA portion as `serving_label` and `serving_grams`, so the saved food, its snapshot, and its provenance all describe the same serving.
 - A USDA record is usable only when all seven macros are present. If so, set `source = "usda_fdc"`, `source_url` to the FDC food page, and `confidence = "high"`.
 - Otherwise, if the model supplied all seven macros and a valid `http(s)` source URL of at most 500 characters, use those values with `source = "web_search"`, the given URL, and `confidence = "low"`.
 - If neither source supplies all seven values, return the candidate with `incomplete = True`, `missing_fields` listing the gaps, and `null` for the missing values. No zero-filling.
+- When the user fills the gaps from a label, the saved `Food` gets `source = "user_label"` and `confidence = "low"`, and keeps `source_url` as a record of where the partial lookup came from. A partially user-entered food must never claim a pure provider source.
 
 ### Interpretation service and endpoint
 
@@ -88,6 +90,7 @@ No API key or cost, but weaker interpretation and extra local setup. The user ap
 
 - Add `source_url: String(500) | None` to `Food` and `MealItem` so provenance survives into the snapshot. `source` and `confidence` keep their existing compact tags.
 - Add `source_url` as an optional field to `FoodCreate`, `MealItemRead`, and the new interpretation schemas.
+- Widen `source` from `Literal["user_label"]` to the closed union `Literal["user_label", "usda_fdc", "web_search"]` in `FoodCreate` and `FoodUpdate`. Keep it closed — arbitrary strings are not accepted. Update the frontend `Food`/`FoodCreate` types and the `isFood` type guard to accept exactly those three tags, so AI-sourced foods do not fail validation or disappear from the manual food list.
 - Create and review Alembic migration `0003_source_url.py` by hand, upgrading and downgrading cleanly on a temporary database. This is a deliberate schema change, not a silent one.
 
 ### Frontend
@@ -107,6 +110,16 @@ No API key or cost, but weaker interpretation and extra local setup. The user ap
 ### QA documentation
 
 - Add `docs/qa/2026-11-20-ai-meal-interpretation.md` with checkout-agnostic, user-runnable steps: set the backend keys, describe a Chick-fil-A meal, verify the candidate's source badge and macros, change a quantity, Confirm, and check the saved meal; verify that interpretation creates nothing on its own; verify low-confidence fallback with a rare food; stop the backend or unset the key and verify manual logging still works. Link this file from the change summary and PR description.
+
+## Calls made during review
+
+These were settled from the existing code and the rules above, not left open:
+
+1. Saving a `Food` when the user adds a candidate is allowed; only meals wait for Confirm. Manual label entry already works this way.
+2. `source` becomes a closed three-value union: `user_label`, `usda_fdc`, `web_search`.
+3. USDA's own portion (label and grams) is authoritative for per-serving values and is what gets stored; the model's serving is a matching hint only.
+4. A food with user-filled gaps is `user_label` / `low` confidence and retains `source_url`.
+5. Interpretation stays synchronous with a 10-second provider timeout, one connection-only retry, at most four candidates, and a 30-second client timeout for that request.
 
 ## Left to the builder
 
