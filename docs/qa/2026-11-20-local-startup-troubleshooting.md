@@ -2,31 +2,40 @@
 
 ## Scope
 
-- Fixes two things that blocked manual QA on 2026-11-20: checking out the branch from the wrong directory, and starting the app without migrating the local database.
-- Applies to any checkout containing the `m2-meal-logging` changes.
+- QA runs from the primary repository checkout; no linked worktree is required.
+- Covers the two things that blocked manual QA on 2026-11-20: being on the wrong branch, and starting the app without migrating the local database.
 
-## 1. Use a checkout that can actually check out the branch
+## 1. Confirm you are on the m2 branch
 
-`m2-meal-logging` is already checked out in the linked worktree, so this command fails in `/home/brtayl/app-calorie`:
-
-```bash
-git checkout m2-meal-logging
-# fatal: 'm2-meal-logging' is already checked out at
-# '/home/brtayl/.local/share/opencode/worktree/8e66d7/m2-meal-logging'
-```
-
-Use the existing worktree instead:
+From the repository root:
 
 ```bash
-cd /home/brtayl/.local/share/opencode/worktree/8e66d7/m2-meal-logging
 git status --short --branch
 ```
 
-Expected: `## m2-meal-logging...origin/m2-meal-logging`. If you were seeing the old app with no meal-entry fields, you were on `main`.
+Expected: `## m2-meal-logging...origin/m2-meal-logging`.
+
+If it says `main`, switch:
+
+```bash
+git checkout m2-meal-logging
+```
+
+If Git says the branch is already checked out in another directory, that directory is a linked worktree. After confirming it has no uncommitted work, remove it from the repository root:
+
+```bash
+git worktree list
+git worktree remove <path-to-worktree>
+git checkout m2-meal-logging
+```
+
+`git worktree list` should then show only your primary checkout.
+
+If you were seeing the old app with no meal-entry fields, you were on `main`.
 
 ## 2. Migrate before starting the servers
 
-From that checkout:
+From the repository root:
 
 ```bash
 nvm use
@@ -56,7 +65,7 @@ Expected: `[]` (or your existing meals list) from the API, and `200` from the fr
 
 ## 4. If npm tools disappear
 
-If `npm run lint` or `npm run dev` falls back to `/usr/bin/eslint` or a global Vite, repair that checkout's local install:
+If `npm run lint` or `npm run dev` falls back to `/usr/bin/eslint` or a global Vite, repair the local install:
 
 ```bash
 cd frontend
