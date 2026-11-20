@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.nutrition import NutritionValues
 from app.models.food import Food
-from app.schemas.food import FoodCreate
+from app.schemas.food import FoodCreate, FoodUpdate
 
 
 def normalize(text: str) -> str:
@@ -42,6 +42,18 @@ def create_food(session: Session, payload: FoodCreate) -> Food:
         aliases=payload.aliases,
     )
     session.add(food)
+    session.commit()
+    session.refresh(food)
+    return food
+
+
+def update_food(session: Session, food_id: int, payload: FoodUpdate) -> Food | None:
+    """Apply only the fields the caller supplied; return None for an unknown id."""
+    food = session.get(Food, food_id)
+    if food is None:
+        return None
+    for field in payload.model_fields_set:
+        setattr(food, field, getattr(payload, field))
     session.commit()
     session.refresh(food)
     return food
