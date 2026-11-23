@@ -8,7 +8,7 @@ from typing import Any, NamedTuple, cast
 import httpx
 
 from app.domain.nutrition import MACRO_FIELDS, _quantize
-from app.schemas.interpretation import CandidateView, MatchView, RawCandidate
+from app.schemas.interpretation import MatchView, RawCandidate
 
 _SEARCH_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 _FOOD_URL = "https://api.nal.usda.gov/fdc/v1/food"
@@ -229,7 +229,7 @@ def _view(
     confidence: str,
     name: str | None = None,
     brand: str | None = None,
-) -> CandidateView:
+) -> MatchView:
     payload: dict[str, object] = {
         # name/brand default to the AI candidate's claim; USDA callers override
         # them with the source record's own identity.
@@ -243,12 +243,18 @@ def _view(
         "confidence": confidence,
         "incomplete": bool(missing),
         "missing_fields": missing,
+        # Provisional match metadata: resolve_matches assigns the final values
+        # via _match_view before any view leaves this module.
+        "match_id": "",
+        "source_key": None,
+        "rank": 1,
+        "rank_reasons": [],
     }
     payload.update({field: values.get(field) for field in MACRO_FIELDS})
-    return CandidateView.model_validate(payload)
+    return MatchView.model_validate(payload)
 
 
-def _web_view(raw: RawCandidate) -> tuple[CandidateView, str | None]:
+def _web_view(raw: RawCandidate) -> tuple[MatchView, str | None]:
     url = str(raw.source_url) if raw.source_url is not None else None
     valid_url = url is not None and url.startswith(("http://", "https://")) and len(url) <= 500
     if valid_url:
@@ -283,125 +289,8 @@ def _web_view(raw: RawCandidate) -> tuple[CandidateView, str | None]:
     )
 
 
-def _resolve_usda(
-    raw: RawCandidate, api_key: str, client: httpx.Client
-) -> tuple[CandidateView | None, str | None]:
-    try:
-        response = client.get(
-            _SEARCH_URL,
-            params={
-                "query": raw.name,
-                "api_key": api_key,
-                "pageSize": 5,
-                "dataType": list(_ALLOWED_DATA_TYPES),
-            },
-            timeout=_LOOKUP_TIMEOUT_SECONDS,
-        )
-    except httpx.HTTPError:
-        return None, "USDA lookup unavailable"
-    if response.status_code != 200:
-        return None, f"USDA lookup returned {response.status_code}"
-    try:
-        search_payload: object = response.json()
-    except ValueError:
-        return None, "USDA lookup returned invalid JSON"
-    search_data = _as_dict(search_payload)
-    foods = _as_list(search_data.get("foods")) if search_data is not None else None
-    if not foods:
-        return None, "No USDA match found"
-
-    ranked = _rank_foods(foods, raw)
-    if not ranked:
-        return None, "No USDA match found"
-    fdc_id = _fdc_id(ranked[0])
-    if fdc_id is None:
-        return None, "USDA match had no id"
-
-    try:
-        detail_response = client.get(
-            f"{_FOOD_URL}/{fdc_id}",
-            params={"api_key": api_key},
-            timeout=_LOOKUP_TIMEOUT_SECONDS,
-        )
-    except httpx.HTTPError:
-        return None, "USDA lookup unavailable"
-    if detail_response.status_code != 200:
-        return None, f"USDA lookup returned {detail_response.status_code}"
-    try:
-        detail_payload: object = detail_response.json()
-    except ValueError:
-        return None, "USDA lookup returned invalid JSON"
-    food = _as_dict(detail_payload)
-    if food is None:
-        return None, "USDA record was unusable"
-
-    portion = _portion(food)
-    if portion is None:
-        return None, "USDA record had no portion"
-    serving_label, serving_grams = portion
-    values = _nutrient_amounts(food, serving_grams)
-    missing = [field for field in MACRO_FIELDS if values[field] is None]
-    page_url = _FDC_PAGE.format(id=fdc_id)
-    return (
-        _view(
-            values,
-            missing,
-            raw=raw,
-            serving_label=serving_label,
-            serving_grams=serving_grams,
-            source="usda_fdc",
-            source_url=page_url,
-            confidence="high" if not missing else "low",
-        ),
-        None if not missing else "USDA record was incomplete",
-    )
-
-
-def resolve_candidate(
-    raw: RawCandidate,
-    *,
-    api_key: str = "DEMO_KEY",
-    client: httpx.Client | None = None,
-) -> tuple[CandidateView, str | None]:
-    """Resolve a candidate from USDA first, then from the sourced web result."""
-    owns_client = client is None
-    lookup_client = client or httpx.Client()
-    try:
-        usda_view, usda_warning = _resolve_usda(raw, api_key, lookup_client)
-    finally:
-        if owns_client:
-            lookup_client.close()
-
-    if usda_view is not None and not usda_view.incomplete:
-        return usda_view, None
-
-    web_view, web_warning = _web_view(raw)
-    if web_view is not None and not web_view.incomplete:
-        warning = usda_warning or "USDA record was incomplete; used web source"
-        return web_view, warning
-
-    if usda_view is not None:
-        missing = list(dict.fromkeys([*usda_view.missing_fields, *web_view.missing_fields]))
-        values = {field: getattr(usda_view, field) for field in MACRO_FIELDS}
-        return (
-            _view(
-                values,
-                missing,
-                raw=raw,
-                serving_label=usda_view.serving_label,
-                serving_grams=usda_view.serving_grams,
-                source="usda_fdc",
-                source_url=str(usda_view.source_url) if usda_view.source_url else None,
-                confidence="low",
-            ),
-            usda_warning or web_warning,
-        )
-    warnings = [warning for warning in (usda_warning, web_warning) if warning]
-    return web_view, "; ".join(warnings) or None
-
-
 def _match_view(
-    view: CandidateView,
+    view: MatchView,
     *,
     match_id: str,
     source_key: str | None,
@@ -431,7 +320,7 @@ def _fdc_page_id(source_url: object) -> str | None:
     return text.split(marker, 1)[1].split("/", 1)[0] or None
 
 
-def _rank_reasons(raw: RawCandidate, view: CandidateView) -> list[str]:
+def _rank_reasons(raw: RawCandidate, view: MatchView) -> list[str]:
     reasons: list[str] = []
     if view.source == "usda_fdc":
         brand = _normalize(raw.brand)
@@ -457,7 +346,7 @@ def _fetch_usda_detail(
     hit: dict[str, Any],
     api_key: str,
     client: httpx.Client,
-) -> tuple[CandidateView | None, str | None]:
+) -> tuple[MatchView | None, str | None]:
     try:
         response = client.get(
             f"{_FOOD_URL}/{fdc_id}",
@@ -506,7 +395,7 @@ def _fetch_usda_detail(
 
 def _resolve_usda_matches(
     raw: RawCandidate, api_key: str, client: httpx.Client
-) -> tuple[list[CandidateView], list[str]]:
+) -> tuple[list[MatchView], list[str]]:
     """Resolve every USDA record that survives the identity gate, in rank order."""
     try:
         response = client.get(
@@ -545,7 +434,7 @@ def _resolve_usda_matches(
     if not accepted:
         return [], warnings or ["No USDA match found"]
 
-    def fetch(item: tuple[int, dict[str, Any]]) -> tuple[CandidateView | None, str | None]:
+    def fetch(item: tuple[int, dict[str, Any]]) -> tuple[MatchView | None, str | None]:
         detail_id, hit = item
         return _fetch_usda_detail(raw, detail_id, hit, api_key, client)
 
@@ -553,7 +442,7 @@ def _resolve_usda_matches(
     with ThreadPoolExecutor(max_workers=min(_USDA_DETAIL_WORKERS, len(accepted))) as pool:
         fetched = list(pool.map(fetch, accepted))
 
-    views: list[CandidateView] = []
+    views: list[MatchView] = []
     for view, warning in fetched:
         if view is not None:
             views.append(view)
@@ -564,7 +453,7 @@ def _resolve_usda_matches(
 
 class _Entry(NamedTuple):
     identity: int
-    view: CandidateView
+    view: MatchView
     match_id: str
     source_key: str | None
 

@@ -1,7 +1,7 @@
 import httpx
 
 from app.schemas.interpretation import RawCandidate
-from app.services.nutrition_lookup import resolve_candidate, resolve_matches
+from app.services.nutrition_lookup import resolve_matches
 
 BASE = {
     "name": "Chick-fil-A chicken sandwich",
@@ -100,14 +100,15 @@ def search_hit() -> dict[str, object]:
 def test_usda_portion_overrides_model_serving() -> None:
     client = mock_client({"foods": [search_hit()]}, _fdc_food("187"))
 
-    view, warning = resolve_candidate(raw(), api_key="free-key", client=client)
+    matches, warnings = resolve_matches(raw(), api_key="free-key", client=client)
+    view = matches[0]
 
     assert view.source == "usda_fdc"
     assert view.confidence == "high"
     assert view.serving_label == "1 sandwich"
     assert str(view.serving_grams) == "187.0000"
     assert str(view.calories) == "465.6300"
-    assert warning is None
+    assert warnings == []
 
 
 def test_canonical_nutrient_wins_over_similar_entries() -> None:
@@ -122,9 +123,10 @@ def test_canonical_nutrient_wins_over_similar_entries() -> None:
     food["foodNutrients"] = list(reversed(food["foodNutrients"]))
     client = mock_client({"foods": [search_hit()]}, food)
 
-    view, warning = resolve_candidate(raw(), api_key="free-key", client=client)
+    matches, warnings = resolve_matches(raw(), api_key="free-key", client=client)
+    view = matches[0]
 
-    assert warning is None
+    assert warnings == []
     assert str(view.sugar_g) == "0.0000"
     assert str(view.fiber_g) == "2.6180"
     assert str(view.carbs_g) == "39.0643"
@@ -142,9 +144,10 @@ def test_branded_food_with_serving_size_but_no_portions() -> None:
         food,
     )
 
-    view, warning = resolve_candidate(raw(), api_key="free-key", client=client)
+    matches, warnings = resolve_matches(raw(), api_key="free-key", client=client)
+    view = matches[0]
 
-    assert warning is None
+    assert warnings == []
     assert view.source == "usda_fdc"
     assert view.serving_label == "1 sandwich"
     assert str(view.serving_grams) == "187.0000"
@@ -158,17 +161,19 @@ def test_non_gram_serving_size_is_not_treated_as_grams() -> None:
     food["servingSizeUnit"] = "ML"
     client = mock_client({"foods": [search_hit()]}, food)
 
-    view, warning = resolve_candidate(raw(source_url=None), api_key="free-key", client=client)
+    matches, warnings = resolve_matches(raw(source_url=None), api_key="free-key", client=client)
+    view = matches[0]
 
     assert view.source == "web_search"
     assert view.incomplete is True
-    assert "USDA record had no portion" in warning
+    assert "USDA record had no portion" in warnings
 
 
 def test_missing_sugar_is_flagged_not_zeroed() -> None:
     client = mock_client({"foods": [search_hit()]}, _fdc_food("187", omit_sugar=True))
 
-    view, _ = resolve_candidate(raw(source_url=None), api_key="free-key", client=client)
+    matches, _ = resolve_matches(raw(source_url=None), api_key="free-key", client=client)
+    view = matches[0]
 
     assert view.source == "usda_fdc"
     assert view.incomplete is True
@@ -179,34 +184,38 @@ def test_missing_sugar_is_flagged_not_zeroed() -> None:
 def test_complete_web_fallback_is_used_when_usda_is_incomplete() -> None:
     client = mock_client({"foods": [search_hit()]}, _fdc_food("187", omit_sugar=True))
 
-    view, warning = resolve_candidate(raw(), api_key="free-key", client=client)
+    matches, warnings = resolve_matches(raw(), api_key="free-key", client=client)
 
+    # The incomplete USDA record ranks first; the complete web fallback stays
+    # available as the next match instead of replacing it.
+    view = next(match for match in matches if match.match_id == "web:0")
     assert view.source == "web_search"
     assert view.confidence == "low"
     assert view.incomplete is False
     assert str(view.calories) == "249.0000"
-    assert warning is not None
+    assert warnings == ["USDA record was incomplete"]
 
 
 def test_web_candidate_without_valid_url_is_incomplete() -> None:
     client = mock_client({"foods": []}, {})
 
-    view, warning = resolve_candidate(raw(source_url=None), api_key="free-key", client=client)
+    matches, warnings = resolve_matches(raw(source_url=None), api_key="free-key", client=client)
+    view = matches[0]
 
     assert view.source == "web_search"
     assert view.incomplete is True
-    assert "source_url" in warning
+    assert any("source_url" in warning for warning in warnings)
 
 
 def test_usda_failure_falls_back_to_web_with_warning() -> None:
     client = mock_client({"foods": []}, {}, search_status=429)
 
-    view, warning = resolve_candidate(raw(), api_key="free-key", client=client)
+    matches, warnings = resolve_matches(raw(), api_key="free-key", client=client)
+    view = matches[0]
 
     assert view.source == "web_search"
     assert view.confidence == "low"
-    assert warning is not None
-    assert "429" in warning
+    assert any("429" in warning for warning in warnings)
 
 
 def test_mismatched_usda_food_falls_back_to_web() -> None:
@@ -230,13 +239,14 @@ def test_mismatched_usda_food_falls_back_to_web() -> None:
         food,
     )
 
-    view, warning = resolve_candidate(candidate, api_key="free-key", client=client)
+    matches, warnings = resolve_matches(candidate, api_key="free-key", client=client)
+    view = matches[0]
 
     assert view.source == "web_search"
     assert view.serving_label == "12-count serving"
     assert str(view.serving_grams) == "170.0000"
     assert str(view.calories) == "380.0000"
-    assert warning == "No USDA match found"
+    assert warnings == ["No USDA match found"]
 
 
 def test_mismatched_usda_brand_falls_back_to_web() -> None:
@@ -262,13 +272,14 @@ def test_mismatched_usda_brand_falls_back_to_web() -> None:
     }
     client = mock_client({"foods": [search_result]}, food)
 
-    view, warning = resolve_candidate(candidate, api_key="free-key", client=client)
+    matches, warnings = resolve_matches(candidate, api_key="free-key", client=client)
+    view = matches[0]
 
     assert view.source == "web_search"
     assert view.serving_label == "Medium serving"
     assert str(view.serving_grams) == "227.0000"
     assert str(view.calories) == "450.0000"
-    assert warning == "No USDA match found"
+    assert warnings == ["No USDA match found"]
 
 
 def test_empty_brand_rejects_branded_usda_record_without_name_overlap() -> None:
@@ -295,13 +306,14 @@ def test_empty_brand_rejects_branded_usda_record_without_name_overlap() -> None:
     }
     client = mock_client({"foods": [search_result]}, food)
 
-    view, warning = resolve_candidate(candidate, api_key="free-key", client=client)
+    matches, warnings = resolve_matches(candidate, api_key="free-key", client=client)
+    view = matches[0]
 
     assert view.source == "web_search"
     assert view.serving_label == "Medium"
     assert str(view.serving_grams) == "227.0000"
     assert str(view.calories) == "450.0000"
-    assert warning == "No USDA match found"
+    assert warnings == ["No USDA match found"]
 
 
 def test_empty_brand_accepts_branded_usda_record_with_name_overlap() -> None:
@@ -330,10 +342,11 @@ def test_empty_brand_accepts_branded_usda_record_with_name_overlap() -> None:
     }
     client = mock_client({"foods": [search_result]}, food)
 
-    view, warning = resolve_candidate(candidate, api_key="free-key", client=client)
+    matches, warnings = resolve_matches(candidate, api_key="free-key", client=client)
+    view = matches[0]
 
     assert view.source == "usda_fdc"
-    assert warning is None
+    assert warnings == []
 
 
 def test_resolve_matches_returns_usda_matches_and_web_match() -> None:

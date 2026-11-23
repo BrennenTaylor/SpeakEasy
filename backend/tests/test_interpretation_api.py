@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 import app.services.interpretation as interpretation
 from app.ai.dependencies import get_interpreter
 from app.ai.provider import AIServiceError
-from app.schemas.interpretation import CandidateView, RawCandidate
+from app.schemas.interpretation import MatchView, RawCandidate
 from app.services.interpretation import interpret_description
 
 RAW = {
@@ -35,14 +35,24 @@ VIEW = {
     "missing_fields": [],
 }
 
+MATCH = {
+    **VIEW,
+    "match_id": "web:0",
+    "source_key": None,
+    "rank": 1,
+    "rank_reasons": ["web source"],
+}
+
 
 def stub_candidate(name: str = "Chick-fil-A sandwich") -> RawCandidate:
     return RawCandidate.model_validate({**RAW, "name": name})
 
 
-def resolved_view(monkeypatch: pytest.MonkeyPatch, warning: str | None = None) -> None:
-    view = CandidateView.model_validate(VIEW)
-    monkeypatch.setattr(interpretation, "resolve_candidate", lambda raw, **kwargs: (view, warning))
+def resolved_matches(monkeypatch: pytest.MonkeyPatch, warnings: list[str] | None = None) -> None:
+    match = MatchView.model_validate(MATCH)
+    monkeypatch.setattr(
+        interpretation, "resolve_matches", lambda raw, **kwargs: ([match], warnings or [])
+    )
 
 
 class StubInterpreter:
@@ -53,10 +63,26 @@ class StubInterpreter:
         return self.candidates
 
 
-def test_interpret_returns_candidates_without_writing(
+def test_interpret_returns_groups_without_writing(
     client_with_db: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    resolved_view(monkeypatch)
+    from app.schemas.interpretation import MatchView
+    from app.services import interpretation
+
+    match = MatchView.model_validate(
+        {
+            **VIEW,
+            "match_id": "web:0",
+            "source_key": None,
+            "rank": 1,
+            "rank_reasons": ["web source"],
+        }
+    )
+    monkeypatch.setattr(
+        interpretation,
+        "resolve_matches",
+        lambda raw, **kwargs: ([match], ["USDA lookup unavailable"]),
+    )
     client_with_db.app.dependency_overrides[get_interpreter] = lambda: StubInterpreter()
 
     response = client_with_db.post(
@@ -64,8 +90,12 @@ def test_interpret_returns_candidates_without_writing(
     )
 
     assert response.status_code == 200
-    assert response.json()["candidates"][0]["source"] == "web_search"
-    assert response.json()["warnings"] == []
+    body = response.json()
+    assert body["groups"][0]["group_id"] == "0"
+    assert body["groups"][0]["label"] == "Chick-fil-A sandwich"
+    assert body["groups"][0]["matches"][0]["match_id"] == "web:0"
+    assert body["warnings"] == ["USDA lookup unavailable"]
+    assert "candidates" not in body
     assert client_with_db.get("/api/meals").json() == []
     assert client_with_db.get("/api/foods").json() == []
 
@@ -101,27 +131,39 @@ def test_interpret_rejects_long_description(client_with_db: TestClient) -> None:
 
 
 def test_interpret_description_caps_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
-    resolved_view(monkeypatch)
+    resolved_matches(monkeypatch)
     candidates = [stub_candidate(f"Food {index}") for index in range(6)]
 
     result = interpret_description("lunch", StubInterpreter(candidates))
 
-    assert len(result.candidates) == 4
+    assert len(result.groups) == 4
 
 
 def test_interpret_description_resolves_candidates_concurrently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     barrier = threading.Barrier(4, timeout=2)
-    view = CandidateView.model_validate(VIEW)
+    match = MatchView.model_validate(MATCH)
 
-    def fake_resolve(raw: RawCandidate, **kwargs: object) -> tuple[CandidateView, None]:
+    def fake_resolve(raw: RawCandidate, **kwargs: object) -> tuple[list[MatchView], list[str]]:
         barrier.wait()
-        return view, None
+        return [match], []
 
-    monkeypatch.setattr(interpretation, "resolve_candidate", fake_resolve)
+    monkeypatch.setattr(interpretation, "resolve_matches", fake_resolve)
     candidates = [stub_candidate(f"Food {index}") for index in range(4)]
 
     result = interpret_description("lunch", StubInterpreter(candidates))
 
-    assert len(result.candidates) == 4
+    assert len(result.groups) == 4
+
+
+def test_interpret_description_deduplicates_warnings_across_groups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolved_matches(monkeypatch, ["USDA lookup unavailable"])
+    candidates = [stub_candidate(f"Food {index}") for index in range(2)]
+
+    result = interpret_description("lunch", StubInterpreter(candidates))
+
+    assert [group.group_id for group in result.groups] == ["0", "1"]
+    assert result.warnings == ["USDA lookup unavailable"]

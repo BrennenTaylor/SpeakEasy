@@ -27,8 +27,8 @@ class RawCandidate(BaseModel):
     source_url: HttpUrl | None = None
 
 
-class CandidateView(BaseModel):
-    """A resolved candidate ready for user review. Missing macros stay null."""
+class MatchView(BaseModel):
+    """A ranked match ready for user review. Missing macros stay null. Rank starts at 1."""
 
     name: str = Field(min_length=1, max_length=200)
     brand: str = Field(max_length=200)
@@ -47,11 +47,6 @@ class CandidateView(BaseModel):
     fiber_g: DecimalText | None = None
     sugar_g: DecimalText | None = None
     sodium_mg: DecimalText | None = None
-
-
-class MatchView(CandidateView):
-    """A ranked candidate match within a group. Rank starts at 1."""
-
     match_id: str
     source_key: str | None
     rank: int = Field(ge=1)
@@ -73,6 +68,4 @@ class InterpretRequest(BaseModel):
 
 class InterpretResponse(BaseModel):
     groups: list[FoodMatchGroup] = Field(default_factory=list)
-    # Deprecated: kept for compatibility until Task 4 removes it.
-    candidates: list[CandidateView] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
