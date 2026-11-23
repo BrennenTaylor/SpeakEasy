@@ -1,7 +1,7 @@
 import httpx
 
 from app.schemas.interpretation import RawCandidate
-from app.services.nutrition_lookup import resolve_candidate
+from app.services.nutrition_lookup import resolve_candidate, resolve_matches
 
 BASE = {
     "name": "Chick-fil-A chicken sandwich",
@@ -71,6 +71,20 @@ def mock_client(
         if request.url.path.endswith("/foods/search"):
             return httpx.Response(search_status, json=foods_response)
         return httpx.Response(200, json=food_response)
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def mock_client_with_details(
+    foods_response: dict[str, object],
+    details_by_id: dict[int, dict[str, object]],
+    *,
+    search_status: int = 200,
+) -> httpx.Client:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/foods/search"):
+            return httpx.Response(search_status, json=foods_response)
+        return httpx.Response(200, json=details_by_id[int(request.url.path.rsplit("/", 1)[-1])])
 
     return httpx.Client(transport=httpx.MockTransport(handler))
 
@@ -320,3 +334,175 @@ def test_empty_brand_accepts_branded_usda_record_with_name_overlap() -> None:
 
     assert view.source == "usda_fdc"
     assert warning is None
+
+
+def test_resolve_matches_returns_usda_matches_and_web_match() -> None:
+    first = _fdc_food("201")
+    first["description"] = "CHICK-FIL-A, Nuggets"
+    first["fdcId"] = 170790
+    second = _fdc_food("170")
+    second["description"] = "CHICK-FIL-A, Nuggets, 12 count"
+    second["fdcId"] = 170791
+    client = mock_client_with_details(
+        {
+            "foods": [
+                {"fdcId": 170790, "description": first["description"], "dataType": "SR Legacy"},
+                {"fdcId": 170791, "description": second["description"], "dataType": "SR Legacy"},
+            ]
+        },
+        {170790: first, 170791: second},
+    )
+
+    matches, warnings = resolve_matches(
+        raw(
+            name="12 ct Chick-fil-A Nuggets",
+            serving_label="12 nuggets",
+            serving_grams="170",
+            calories="380",
+        ),
+        api_key="free-key",
+        client=client,
+    )
+
+    assert [match.match_id for match in matches] == ["usda:170790", "usda:170791", "web:0"]
+    assert matches[0].source == "usda_fdc"
+    assert matches[2].source == "web_search"
+    assert matches[2].name == "12 ct Chick-fil-A Nuggets"
+    assert warnings == []
+
+
+def test_resolve_matches_uses_source_identity_for_usda_cards() -> None:
+    food = _fdc_food("201")
+    food["description"] = "CHICK-FIL-A, Nuggets, 10 piece"
+    client = mock_client(
+        {"foods": [{**search_hit(), "description": food["description"]}]},
+        food,
+    )
+
+    matches, _ = resolve_matches(
+        raw(name="12 ct Chick-fil-A Nuggets", serving_grams="170", calories="380"),
+        api_key="free-key",
+        client=client,
+    )
+
+    assert matches[0].name == "CHICK-FIL-A, Nuggets, 10 piece"
+    assert matches[0].brand == ""
+
+
+def test_resolve_matches_excludes_wrong_food_and_brand() -> None:
+    strips = _fdc_food("201")
+    strips["description"] = "CHICK-FIL-A, Chick-n-Strips"
+    blount = _fdc_food("113")
+    blount.update(
+        {
+            "description": "MAC & CHEESE",
+            "dataType": "Branded",
+            "brandOwner": "Blount Seafood Corporation",
+        }
+    )
+    client = mock_client(
+        {
+            "foods": [
+                {"fdcId": 170303, "description": strips["description"], "dataType": "SR Legacy"},
+                {
+                    "fdcId": 1894006,
+                    "description": blount["description"],
+                    "dataType": "Branded",
+                    "brandOwner": blount["brandOwner"],
+                },
+            ]
+        },
+        strips,
+    )
+
+    matches, warnings = resolve_matches(
+        raw(
+            name="Medium Mac & Cheese",
+            brand="Chick-fil-A",
+            serving_label="Medium",
+            serving_grams="227",
+            calories="450",
+        ),
+        api_key="free-key",
+        client=client,
+    )
+
+    assert [match.match_id for match in matches] == ["web:0"]
+    assert warnings == ["No USDA match found"]
+
+
+def test_resolve_matches_keeps_url_less_draft() -> None:
+    client = mock_client({"foods": []}, {})
+
+    matches, warnings = resolve_matches(
+        raw(source_url=None, calories="380"), api_key="free-key", client=client
+    )
+
+    assert len(matches) == 1
+    assert matches[0].source == "web_search"
+    assert matches[0].incomplete is True
+    assert matches[0].source_url is None
+    assert "source_url" in matches[0].missing_fields
+    assert matches[0].calories is None
+    assert any("source_url" in warning for warning in warnings)
+
+
+def test_resolve_matches_deduplicates_within_source_only() -> None:
+    food = _fdc_food("201")
+    food["fdcId"] = 170790
+    food["description"] = "CHICK-FIL-A, Nuggets"
+    client = mock_client(
+        {
+            "foods": [
+                {"fdcId": 170790, "description": food["description"], "dataType": "SR Legacy"},
+                {"fdcId": 170790, "description": food["description"], "dataType": "SR Legacy"},
+            ]
+        },
+        food,
+    )
+
+    matches, _ = resolve_matches(raw(name="Chick-fil-A Nuggets"), api_key="free-key", client=client)
+
+    assert [match.match_id for match in matches] == ["usda:170790", "web:0"]
+
+
+def test_resolve_matches_ranks_and_explains_matches() -> None:
+    first = _fdc_food("201")
+    first["description"] = "CHICK-FIL-A, Nuggets"
+    first["fdcId"] = 170790
+    second = _fdc_food("170", omit_sugar=True)
+    second["description"] = "CHICK-FIL-A, Nuggets, 12 count"
+    second["fdcId"] = 170791
+    client = mock_client_with_details(
+        {
+            "foods": [
+                {"fdcId": 170790, "description": first["description"], "dataType": "SR Legacy"},
+                {"fdcId": 170791, "description": second["description"], "dataType": "SR Legacy"},
+            ]
+        },
+        {170790: first, 170791: second},
+    )
+
+    matches, warnings = resolve_matches(
+        raw(name="12 ct Chick-fil-A Nuggets", serving_grams="170", calories="380"),
+        api_key="free-key",
+        client=client,
+    )
+
+    assert [match.rank for match in matches] == [1, 2, 3]
+    assert matches[0].source_key == "170790"
+    assert matches[0].rank_reasons == [
+        "brand match",
+        "name match",
+        "complete macros",
+        "USDA source",
+    ]
+    # Identity quality outranks completeness: the incomplete 12-count record stays
+    # visible and still ranks ahead of the complete web match.
+    assert matches[1].source_key == "170791"
+    assert matches[1].incomplete is True
+    assert matches[1].rank_reasons == ["brand match", "name match", "USDA source"]
+    assert matches[2].match_id == "web:0"
+    assert matches[2].source_key is None
+    assert matches[2].rank_reasons == ["complete macros", "web source"]
+    assert warnings == ["USDA record was incomplete"]
