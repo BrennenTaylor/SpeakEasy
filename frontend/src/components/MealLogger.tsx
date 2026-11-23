@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Food } from "../api/foods";
+import type { MatchView } from "../api/interpretation";
 import {
   createMeal,
   fetchMeals,
@@ -9,7 +10,8 @@ import {
   type Meal,
   type MealCreate,
 } from "../api/meals";
-import { FoodSearch } from "./FoodSearch";
+import { FoodSearch, type FoodPrefill } from "./FoodSearch";
+import { MealCandidates } from "./MealCandidates";
 import { MealReview, type ReviewItem } from "./MealReview";
 import { RecentMeals } from "./RecentMeals";
 
@@ -29,6 +31,27 @@ function payloadFor(rawInput: string, items: ReviewItem[]): MealCreate {
   };
 }
 
+function prefillFromMatch(match: MatchView): FoodPrefill {
+  const text = (value: string | null) => value ?? "";
+  return {
+    name: match.name,
+    brand: match.brand,
+    serving_label: match.serving_label,
+    serving_grams: match.serving_grams,
+    calories: text(match.calories),
+    protein_g: text(match.protein_g),
+    carbs_g: text(match.carbs_g),
+    fat_g: text(match.fat_g),
+    fiber_g: text(match.fiber_g),
+    sugar_g: text(match.sugar_g),
+    sodium_mg: text(match.sodium_mg),
+    source: "user_label",
+    source_url: match.source_url,
+    confidence: "low",
+    aliases: [],
+  };
+}
+
 export function MealLogger() {
   const [rawInput, setRawInput] = useState("");
   const [items, setItems] = useState<ReviewItem[]>([]);
@@ -37,6 +60,7 @@ export function MealLogger() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [foodPrefill, setFoodPrefill] = useState<FoodPrefill | null>(null);
 
   const previewControllerRef = useRef<AbortController | null>(null);
   const nextItemIdRef = useRef(1);
@@ -109,8 +133,12 @@ export function MealLogger() {
     return () => window.clearTimeout(timer);
   }, [rawInput, runPreview]);
 
-  function handleAdd(food: Food) {
-    const nextItems = [...items, { id: nextItemIdRef.current++, food, quantity: "1" }];
+  function handleAdd(food: Food, quantity = "1") {
+    // Build from the ref and update it synchronously: the picker adds every
+    // selected group in one tick, so the render-closure `items` would be stale
+    // for all but the first call and drop foods from the review.
+    const nextItems = [...itemsRef.current, { id: nextItemIdRef.current++, food, quantity }];
+    itemsRef.current = nextItems;
     setError(null);
     setItems(nextItems);
     runPreview(rawInput, nextItems);
@@ -175,7 +203,17 @@ export function MealLogger() {
         />
       </div>
 
-      <FoodSearch onAdd={handleAdd} />
+      <MealCandidates
+        rawInput={rawInput}
+        onAdd={handleAdd}
+        onComplete={(match) => setFoodPrefill(prefillFromMatch(match))}
+      />
+
+      <FoodSearch
+        onAdd={handleAdd}
+        prefill={foodPrefill}
+        onPrefillUsed={() => setFoodPrefill(null)}
+      />
 
       <MealReview
         items={items}

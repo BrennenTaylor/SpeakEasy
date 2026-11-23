@@ -65,12 +65,96 @@ const savedMeal: Meal = {
   },
 };
 
+const candidateFood: Food = {
+  ...food,
+  id: 2,
+  name: "Chick-fil-A sandwich",
+  brand: "Chick-fil-A",
+  serving_label: "1 sandwich",
+  serving_grams: "187.0000",
+  source: "usda_fdc",
+  source_url: "https://fdc.example/170790",
+  confidence: "high",
+  calories: "465.6300",
+};
+
+const sodaFood: Food = {
+  ...food,
+  id: 3,
+  name: "Coca-Cola Classic",
+  brand: "Coca-Cola",
+  serving_label: "1 can",
+  serving_grams: "355.0000",
+  source: "web_search",
+  source_url: "https://example.com/coca-cola",
+  confidence: "low",
+  aliases: [],
+  calories: "140.0000",
+  protein_g: "0.0000",
+  carbs_g: "39.0000",
+  fat_g: "0.0000",
+  fiber_g: "0.0000",
+  sugar_g: "39.0000",
+  sodium_mg: "45.0000",
+};
+
+const interpretationResult = {
+  groups: [
+    {
+      group_id: "0",
+      label: candidateFood.name,
+      quantity: "1.0000",
+      matches: [
+        {
+          ...candidateFood,
+          quantity: "1.0000",
+          source: "usda_fdc",
+          confidence: "high",
+          incomplete: false,
+          missing_fields: [],
+          match_id: "usda:170790",
+          source_key: "170790",
+          rank: 1,
+          rank_reasons: ["brand match", "complete macros", "USDA source"],
+        },
+      ],
+    },
+  ],
+  warnings: [],
+};
+
+const twoGroupInterpretation = {
+  groups: [
+    ...interpretationResult.groups,
+    {
+      group_id: "1",
+      label: sodaFood.name,
+      quantity: "2.0000",
+      matches: [
+        {
+          ...sodaFood,
+          quantity: "2.0000",
+          incomplete: false,
+          missing_fields: [],
+          match_id: "web:0",
+          source_key: null,
+          rank: 1,
+          rank_reasons: ["name match", "complete macros", "web source"],
+        },
+      ],
+    },
+  ],
+  warnings: [],
+};
+
 type StubOptions = {
   preview?: MacroStrings;
   previewStatus?: number;
   meals?: Meal[];
   confirmStatus?: number;
   confirmBody?: unknown;
+  interpret?: unknown;
+  interpretStatus?: number;
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -87,8 +171,24 @@ function stubFetch(options: StubOptions = {}) {
     if (url.startsWith("/api/health")) {
       return Promise.resolve(jsonResponse({ status: "ok" }));
     }
+    if (url === "/api/foods" && init?.method === "POST") {
+      const body = JSON.parse(String(init.body ?? "{}")) as { name?: unknown };
+      const created = body.name === sodaFood.name ? sodaFood : candidateFood;
+      return Promise.resolve(jsonResponse(created, 201));
+    }
     if (url.startsWith("/api/foods")) {
       return Promise.resolve(jsonResponse([food]));
+    }
+    if (url === "/api/meals/interpret" && init?.method === "POST") {
+      const status = options.interpretStatus ?? 200;
+      return Promise.resolve(
+        jsonResponse(
+          status >= 400
+            ? { detail: "interpret failed" }
+            : (options.interpret ?? interpretationResult),
+          status,
+        ),
+      );
     }
     if (url.startsWith("/api/meals/preview")) {
       const status = options.previewStatus ?? 200;
@@ -376,5 +476,162 @@ describe("MealLogger", () => {
     await waitFor(() => expect(screen.queryByText("250.0000")).not.toBeInTheDocument());
     expect(confirm).toBeDisabled();
     expect(findCall(fetchMock, "/api/meals", "POST")).toBeUndefined();
+  });
+
+  it("adds an AI match to the review and confirms it", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch();
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "chick fil a sandwich",
+    );
+    await user.click(screen.getByRole("button", { name: /find foods/i }));
+    await user.click(await screen.findByRole("button", { name: /add selected foods/i }));
+
+    await waitFor(() =>
+      expect(lastPreviewItems(fetchMock)).toEqual([
+        { food_id: 2, quantity: "1.0000", unit: "serving" },
+      ]),
+    );
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    const createCall = findCall(fetchMock, "/api/meals", "POST");
+    expect(JSON.parse(String(createCall?.[1]?.body)).items).toEqual([
+      { food_id: 2, quantity: "1.0000", unit: "serving" },
+    ]);
+  });
+
+  it("keeps every group's selected food when adding them in one batch", async () => {
+    const user = userEvent.setup();
+    const twoItemTotals: MacroStrings = {
+      calories: "745.6300",
+      protein_g: "30.4000",
+      carbs_g: "117.1000",
+      fat_g: "20.9000",
+      fiber_g: "2.6000",
+      sugar_g: "78.0000",
+      sodium_mg: "1497.0000",
+    };
+    const fetchMock = stubFetch({ interpret: twoGroupInterpretation, preview: twoItemTotals });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "a sandwich and two cokes",
+    );
+    await user.click(screen.getByRole("button", { name: /find foods/i }));
+    await user.click(await screen.findByRole("button", { name: /add selected foods/i }));
+
+    // Both foods must reach the review, not just the last one added.
+    expect(
+      await screen.findByRole("textbox", { name: /quantity for chick-fil-a sandwich/i }),
+    ).toHaveValue("1.0000");
+    expect(screen.getByRole("textbox", { name: /quantity for coca-cola classic/i })).toHaveValue(
+      "2.0000",
+    );
+
+    await waitFor(() =>
+      expect(lastPreviewItems(fetchMock)).toEqual([
+        { food_id: 2, quantity: "1.0000", unit: "serving" },
+        { food_id: 3, quantity: "2.0000", unit: "serving" },
+      ]),
+    );
+    expect(screen.getByText("745.6300")).toBeInTheDocument();
+
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    const createCall = findCall(fetchMock, "/api/meals", "POST");
+    expect(JSON.parse(String(createCall?.[1]?.body)).items).toEqual([
+      { food_id: 2, quantity: "1.0000", unit: "serving" },
+      { food_id: 3, quantity: "2.0000", unit: "serving" },
+    ]);
+  });
+
+  it("keeps manual logging usable when interpretation is unavailable", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({ interpretStatus: 503 });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "two servings of nuggets",
+    );
+    await user.click(screen.getByRole("button", { name: /find foods/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/503/i);
+
+    await addNuggets(user);
+    await waitFor(() => expect(screen.getByText("250.0000")).toBeInTheDocument());
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    const createCall = findCall(fetchMock, "/api/meals", "POST");
+    expect(JSON.parse(String(createCall?.[1]?.body)).items).toEqual([
+      { food_id: 1, quantity: "1", unit: "serving" },
+    ]);
+  });
+
+  it("prefills the create form for an incomplete match without losing the source URL", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({
+      interpret: {
+        groups: [
+          {
+            group_id: "0",
+            label: candidateFood.name,
+            quantity: "1.0000",
+            matches: [
+              {
+                ...candidateFood,
+                source: "web_search",
+                source_url: "https://example.com/menu",
+                confidence: "low",
+                quantity: "1.0000",
+                incomplete: true,
+                missing_fields: ["sugar_g"],
+                sugar_g: null,
+                match_id: "web:0",
+                source_key: null,
+                rank: 1,
+                rank_reasons: ["web source"],
+              },
+            ],
+          },
+        ],
+        warnings: [],
+      },
+    });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "a rare sandwich",
+    );
+    await user.click(screen.getByRole("button", { name: /find foods/i }));
+    await user.click(await screen.findByRole("button", { name: /complete with a label/i }));
+
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(candidateFood.name);
+    expect(screen.getByRole("textbox", { name: "Calories" })).toHaveValue(candidateFood.calories);
+    expect(screen.getByRole("textbox", { name: "Sugar (g)" })).toHaveValue("");
+
+    await user.type(screen.getByRole("textbox", { name: "Sugar (g)" }), "1");
+    await user.click(screen.getByRole("button", { name: "Create food" }));
+
+    await waitFor(() => {
+      const call = findCall(fetchMock, "/api/foods", "POST");
+      expect(call).toBeDefined();
+      const body = JSON.parse(String(call?.[1]?.body));
+      expect(body.source).toBe("user_label");
+      expect(body.source_url).toBe("https://example.com/menu");
+      expect(body.confidence).toBe("low");
+      expect(body.sugar_g).toBe("1");
+    });
   });
 });

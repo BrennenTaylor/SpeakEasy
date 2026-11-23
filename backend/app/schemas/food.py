@@ -6,13 +6,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.schemas.common import DecimalText
 from app.schemas.nutrition import NutritionFields
 
+FoodSource = Literal["user_label", "usda_fdc", "web_search"]
+
 
 class FoodCreate(NutritionFields):
     name: str
     brand: str
     serving_label: str
     serving_grams: DecimalText
-    source: Literal["user_label"] = "user_label"
+    source: FoodSource = "user_label"
+    source_url: str | None = Field(default=None, max_length=500)
     confidence: Literal["high", "low"]
     aliases: list[str] = Field(default_factory=list)
 
@@ -24,7 +27,8 @@ class FoodUpdate(BaseModel):
     brand: str | None = None
     serving_label: str | None = None
     serving_grams: DecimalText | None = None
-    source: Literal["user_label"] | None = None
+    source: FoodSource | None = None
+    source_url: str | None = Field(default=None, max_length=500)
     confidence: Literal["high", "low"] | None = None
     aliases: list[str] | None = None
     calories: DecimalText | None = Field(default=None, ge=0)

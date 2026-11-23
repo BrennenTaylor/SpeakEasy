@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "sqlite:///./data/app.db"
     sql_echo: bool = False
+    openai_api_key: str | None = None
+    ai_model: str = "gpt-6-luna"
+    ai_timeout_seconds: float = 10.0
+    usda_api_key: str = "DEMO_KEY"
 
 
 @lru_cache

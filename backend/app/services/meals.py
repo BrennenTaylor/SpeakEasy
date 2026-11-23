@@ -61,6 +61,7 @@ def create_meal(session: Session, payload: MealCreate) -> Meal:
             serving_label=food.serving_label,
             serving_grams=food.serving_grams,
             source=food.source,
+            source_url=food.source_url,
             confidence=food.confidence,
             **food_values(food).as_dict(),
         )

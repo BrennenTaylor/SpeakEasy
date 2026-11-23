@@ -17,6 +17,7 @@ class Food(NutritionColumns, Base):
     serving_label: Mapped[str] = mapped_column(String(100), nullable=False)
     serving_grams: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
     source: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     confidence: Mapped[str] = mapped_column(String(20), nullable=False)
     aliases: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(

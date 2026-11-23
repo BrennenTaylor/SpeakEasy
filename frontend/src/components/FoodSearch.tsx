@@ -24,7 +24,18 @@ function labelField(name: string, label: string, inputMode?: "decimal", defaultV
   );
 }
 
-export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
+export type FoodPrefill = Omit<FoodCreate, "source" | "confidence"> & {
+  source?: FoodCreate["source"];
+  confidence?: FoodCreate["confidence"];
+};
+
+type Props = {
+  onAdd: (food: Food) => void;
+  prefill?: FoodPrefill | null;
+  onPrefillUsed?: () => void;
+};
+
+export function FoodSearch({ onAdd, prefill, onPrefillUsed }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Food[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -58,13 +69,18 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
   function openEditForm(foodToEdit: Food) {
     setError(null);
     setEditingFood(foodToEdit);
+    onPrefillUsed?.();
     setShowCreate(true);
   }
 
   function closeForm() {
     setEditingFood(null);
     setShowCreate(false);
+    onPrefillUsed?.();
   }
+
+  const initial = editingFood ?? prefill;
+  const formVisible = showCreate || Boolean(prefill);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -83,7 +99,8 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
       fiber_g: text("fiber_g"),
       sugar_g: text("sugar_g"),
       sodium_mg: text("sodium_mg"),
-      source: "user_label",
+      source: editingFood?.source ?? "user_label",
+      source_url: text("source_url") || null,
       confidence: text("confidence") === "low" ? "low" : "high",
       aliases: text("aliases")
         .split(",")
@@ -189,7 +206,7 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
         </ul>
       )}
 
-      {!showCreate ? (
+      {!formVisible ? (
         <button
           type="button"
           onClick={openCreateForm}
@@ -199,24 +216,24 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
         </button>
       ) : (
         <form
-          key={editingFood?.id ?? "new"}
+          key={editingFood?.id ?? JSON.stringify(prefill) ?? "new"}
           onSubmit={handleCreate}
           className="w-full min-w-0 space-y-3 rounded-lg border border-gray-200 bg-white p-3"
         >
           <h3 className="text-sm font-medium text-gray-900">
             {editingFood ? "Edit saved food" : "Create a food from a label"}
           </h3>
-          {labelField("name", "Name", undefined, editingFood?.name)}
-          {labelField("brand", "Brand", undefined, editingFood?.brand)}
-          {labelField("serving_label", "Serving label", undefined, editingFood?.serving_label)}
-          {labelField("serving_grams", "Serving grams", "decimal", editingFood?.serving_grams)}
-          {labelField("calories", "Calories", "decimal", editingFood?.calories)}
-          {labelField("protein_g", "Protein (g)", "decimal", editingFood?.protein_g)}
-          {labelField("carbs_g", "Carbs (g)", "decimal", editingFood?.carbs_g)}
-          {labelField("fat_g", "Fat (g)", "decimal", editingFood?.fat_g)}
-          {labelField("fiber_g", "Fiber (g)", "decimal", editingFood?.fiber_g)}
-          {labelField("sugar_g", "Sugar (g)", "decimal", editingFood?.sugar_g)}
-          {labelField("sodium_mg", "Sodium (mg)", "decimal", editingFood?.sodium_mg)}
+          {labelField("name", "Name", undefined, initial?.name)}
+          {labelField("brand", "Brand", undefined, initial?.brand)}
+          {labelField("serving_label", "Serving label", undefined, initial?.serving_label)}
+          {labelField("serving_grams", "Serving grams", "decimal", initial?.serving_grams)}
+          {labelField("calories", "Calories", "decimal", initial?.calories)}
+          {labelField("protein_g", "Protein (g)", "decimal", initial?.protein_g)}
+          {labelField("carbs_g", "Carbs (g)", "decimal", initial?.carbs_g)}
+          {labelField("fat_g", "Fat (g)", "decimal", initial?.fat_g)}
+          {labelField("fiber_g", "Fiber (g)", "decimal", initial?.fiber_g)}
+          {labelField("sugar_g", "Sugar (g)", "decimal", initial?.sugar_g)}
+          {labelField("sodium_mg", "Sodium (mg)", "decimal", initial?.sodium_mg)}
           <div className="space-y-1">
             <label htmlFor="food-confidence" className="block text-xs font-medium text-gray-700">
               Confidence
@@ -224,7 +241,7 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
             <select
               id="food-confidence"
               name="confidence"
-              defaultValue={editingFood?.confidence ?? "high"}
+              defaultValue={initial?.confidence ?? "high"}
               className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
             >
               <option value="high">High</option>
@@ -235,8 +252,9 @@ export function FoodSearch({ onAdd }: { onAdd: (food: Food) => void }) {
             "aliases",
             "Aliases (comma-separated)",
             undefined,
-            editingFood?.aliases.join(", "),
+            initial?.aliases?.join(", "),
           )}
+          <input type="hidden" name="source_url" defaultValue={initial?.source_url ?? ""} />
           <div className="flex gap-2">
             <button
               type="submit"

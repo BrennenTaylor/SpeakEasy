@@ -38,6 +38,7 @@ def create_food(session: Session, payload: FoodCreate) -> Food:
         sugar_g=payload.sugar_g,
         sodium_mg=payload.sodium_mg,
         source=payload.source,
+        source_url=payload.source_url,
         confidence=payload.confidence,
         aliases=payload.aliases,
     )
