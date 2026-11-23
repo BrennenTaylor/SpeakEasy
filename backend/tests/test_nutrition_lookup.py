@@ -255,3 +255,68 @@ def test_mismatched_usda_brand_falls_back_to_web() -> None:
     assert str(view.serving_grams) == "227.0000"
     assert str(view.calories) == "450.0000"
     assert warning == "No USDA match found"
+
+
+def test_empty_brand_rejects_branded_usda_record_without_name_overlap() -> None:
+    candidate = raw(
+        name="Medium Mac & Cheese",
+        brand="",
+        serving_label="Medium",
+        serving_grams="227",
+        calories="450",
+    )
+    food = _fdc_food("113")
+    food.update(
+        {
+            "description": "MAC & CHEESE",
+            "dataType": "Branded",
+            "brandOwner": "Blount Seafood Corporation",
+        }
+    )
+    search_result = {
+        **search_hit(),
+        "description": "MAC & CHEESE",
+        "dataType": "Branded",
+        "brandOwner": "Blount Seafood Corporation",
+    }
+    client = mock_client({"foods": [search_result]}, food)
+
+    view, warning = resolve_candidate(candidate, api_key="free-key", client=client)
+
+    assert view.source == "web_search"
+    assert view.serving_label == "Medium"
+    assert str(view.serving_grams) == "227.0000"
+    assert str(view.calories) == "450.0000"
+    assert warning == "No USDA match found"
+
+
+def test_empty_brand_accepts_branded_usda_record_with_name_overlap() -> None:
+    candidate = raw(
+        name="CHICK-FIL-A Chicken Nuggets",
+        brand="",
+        serving_label="12-count serving",
+        serving_grams="170",
+        calories="380",
+    )
+    # brandOwner has no comma because punctuation tokenization is a Task 3 concern;
+    # this test only pins that name/brandOwner word overlap corroborates the match.
+    food = _fdc_food("187")
+    food.update(
+        {
+            "description": "CHICK-FIL-A, Chicken Nuggets",
+            "dataType": "Branded",
+            "brandOwner": "Chick-fil-A Inc.",
+        }
+    )
+    search_result = {
+        **search_hit(),
+        "description": "CHICK-FIL-A, Chicken Nuggets",
+        "dataType": "Branded",
+        "brandOwner": "Chick-fil-A Inc.",
+    }
+    client = mock_client({"foods": [search_result]}, food)
+
+    view, warning = resolve_candidate(candidate, api_key="free-key", client=client)
+
+    assert view.source == "usda_fdc"
+    assert warning is None

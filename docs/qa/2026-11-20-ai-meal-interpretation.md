@@ -61,7 +61,7 @@ This case prevents FDC `170303` (**Chick-fil-A Chick-n-Strips**, `4 pieces` / `2
 2. Click **Find foods**.
 3. Expected: two `Web · low confidence` cards and two warnings reading `No USDA match found`.
 4. The nugget card should show `12 nuggets` / `170 g` and `380` calories. It must **not** show `4 pieces`, `201 g`, or `Chick-n-Strips` values.
-5. The mac and cheese card should show `Medium` / `227 g` and `450` calories. It must **not** show `0.5 cup` or `113 g`.
+5. The mac and cheese card should show `Medium` / `227 g` and `450` calories. It must **not** show `0.5 cup` or `113 g`. This expectation does not depend on the model populating the card's `brand` field: with an empty brand, a USDA **Branded** record is accepted only when the food name shares at least one word with the record's `brandOwner`/`brandName`, so the Blount entry is rejected either way.
 6. Spot-check that each card's `source_url` points to the Chick-fil-A nutrition page. Exact label wording can vary between model runs; the serving grams and macros should match the linked page.
 
 ## 4. Prove interpretation itself writes nothing

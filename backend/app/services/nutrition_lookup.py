@@ -98,10 +98,18 @@ def _food_tokens(raw: RawCandidate) -> set[str]:
 
 def _brand_matches(raw: RawCandidate, food: dict[str, Any]) -> bool:
     brand = _normalize(raw.brand)
-    if not brand:
-        return True
-    fields = (food.get("brandOwner"), food.get("brandName"), food.get("description"))
-    return any(brand in _normalize(str(value)) for value in fields if value)
+    if brand:
+        fields = (food.get("brandOwner"), food.get("brandName"), food.get("description"))
+        return any(brand in _normalize(str(value)) for value in fields if value)
+    # The AI is not required to populate brand, so an empty brand must not wave a
+    # Branded record through uncorroborated: require at least one candidate-name
+    # token to overlap the record's brand fields. SR Legacy stays food-token-gated.
+    if food.get("dataType") == "Branded":
+        owner_tokens = _tokens(str(food.get("brandOwner") or "")) | _tokens(
+            str(food.get("brandName") or "")
+        )
+        return bool(_tokens(raw.name) & owner_tokens)
+    return True
 
 
 def _food_matches(raw: RawCandidate, food: dict[str, Any]) -> bool:
