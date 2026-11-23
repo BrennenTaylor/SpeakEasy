@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Food } from "../api/foods";
-import type { CandidateView } from "../api/interpretation";
+import type { MatchView } from "../api/interpretation";
 import {
   createMeal,
   fetchMeals,
@@ -31,22 +31,22 @@ function payloadFor(rawInput: string, items: ReviewItem[]): MealCreate {
   };
 }
 
-function prefillFromCandidate(candidate: CandidateView): FoodPrefill {
+function prefillFromMatch(match: MatchView): FoodPrefill {
   const text = (value: string | null) => value ?? "";
   return {
-    name: candidate.name,
-    brand: candidate.brand,
-    serving_label: candidate.serving_label,
-    serving_grams: candidate.serving_grams,
-    calories: text(candidate.calories),
-    protein_g: text(candidate.protein_g),
-    carbs_g: text(candidate.carbs_g),
-    fat_g: text(candidate.fat_g),
-    fiber_g: text(candidate.fiber_g),
-    sugar_g: text(candidate.sugar_g),
-    sodium_mg: text(candidate.sodium_mg),
+    name: match.name,
+    brand: match.brand,
+    serving_label: match.serving_label,
+    serving_grams: match.serving_grams,
+    calories: text(match.calories),
+    protein_g: text(match.protein_g),
+    carbs_g: text(match.carbs_g),
+    fat_g: text(match.fat_g),
+    fiber_g: text(match.fiber_g),
+    sugar_g: text(match.sugar_g),
+    sodium_mg: text(match.sodium_mg),
     source: "user_label",
-    source_url: candidate.source_url,
+    source_url: match.source_url,
     confidence: "low",
     aliases: [],
   };
@@ -202,7 +202,7 @@ export function MealLogger() {
       <MealCandidates
         rawInput={rawInput}
         onAdd={handleAdd}
-        onComplete={(candidate) => setFoodPrefill(prefillFromCandidate(candidate))}
+        onComplete={(match) => setFoodPrefill(prefillFromMatch(match))}
       />
 
       <FoodSearch

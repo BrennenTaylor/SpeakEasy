@@ -1,94 +1,91 @@
 import { useEffect, useRef, useState } from "react";
 
 import { createFood, type Food, type FoodCreate } from "../api/foods";
-import { interpretMeal, type CandidateView } from "../api/interpretation";
+import { interpretMeal, type FoodMatchGroup, type MatchView } from "../api/interpretation";
 import { MACRO_ROWS, type MacroStrings } from "../api/meals";
 
 type Props = {
   rawInput: string;
   onAdd: (food: Food, quantity: string) => void;
-  onComplete?: (candidate: CandidateView) => void;
+  onComplete?: (match: MatchView) => void;
 };
 
-type CompleteCandidate = CandidateView & MacroStrings;
+type CompleteMatch = MatchView & MacroStrings;
+
+type Selection = { group: FoodMatchGroup; match: MatchView };
+
+const INITIAL_VISIBLE_MATCHES = 3;
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : "Something went wrong";
 }
 
-function isCompleteCandidate(candidate: CandidateView): candidate is CompleteCandidate {
-  return !candidate.incomplete && MACRO_ROWS.every(({ key }) => typeof candidate[key] === "string");
+function isCompleteMatch(match: MatchView): match is CompleteMatch {
+  return !match.incomplete && MACRO_ROWS.every(({ key }) => typeof match[key] === "string");
 }
 
-function badgeFor(candidate: CandidateView): { label: string; low: boolean } {
-  if (candidate.source === "usda_fdc") {
-    return candidate.confidence === "high" && !candidate.incomplete
+function badgeFor(match: MatchView): { label: string; low: boolean } {
+  if (match.source === "usda_fdc") {
+    return match.confidence === "high" && !match.incomplete
       ? { label: "USDA · high confidence", low: false }
       : { label: "USDA · low confidence", low: true };
   }
   return { label: "Web · low confidence", low: true };
 }
 
-function foodPayload(candidate: CompleteCandidate): FoodCreate {
+function foodPayload(match: CompleteMatch): FoodCreate {
   return {
-    name: candidate.name,
-    brand: candidate.brand,
-    serving_label: candidate.serving_label,
-    serving_grams: candidate.serving_grams,
-    source: candidate.source,
-    source_url: candidate.source_url,
-    confidence: candidate.confidence,
+    name: match.name,
+    brand: match.brand,
+    serving_label: match.serving_label,
+    serving_grams: match.serving_grams,
+    source: match.source,
+    source_url: match.source_url,
+    confidence: match.confidence,
     aliases: [],
-    calories: candidate.calories,
-    protein_g: candidate.protein_g,
-    carbs_g: candidate.carbs_g,
-    fat_g: candidate.fat_g,
-    fiber_g: candidate.fiber_g,
-    sugar_g: candidate.sugar_g,
-    sodium_mg: candidate.sodium_mg,
+    calories: match.calories,
+    protein_g: match.protein_g,
+    carbs_g: match.carbs_g,
+    fat_g: match.fat_g,
+    fiber_g: match.fiber_g,
+    sugar_g: match.sugar_g,
+    sodium_mg: match.sodium_mg,
   };
 }
 
-function CandidateCard({
-  candidate,
-  onAdd,
+function MatchCard({
+  group,
+  match,
+  selected,
+  onSelect,
   onComplete,
 }: {
-  candidate: CandidateView;
-  onAdd: (food: Food, quantity: string) => void;
-  onComplete?: (candidate: CandidateView) => void;
+  group: FoodMatchGroup;
+  match: MatchView;
+  selected: boolean;
+  onSelect: (matchId: string) => void;
+  onComplete?: (match: MatchView) => void;
 }) {
-  const [quantity, setQuantity] = useState(candidate.quantity);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const badge = badgeFor(candidate);
-
-  async function handleAdd() {
-    if (!isCompleteCandidate(candidate)) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const saved = await createFood(foodPayload(candidate));
-      onAdd(saved, quantity);
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const badge = badgeFor(match);
 
   return (
     <li className="w-full min-w-0 space-y-2 rounded-lg border border-gray-200 bg-white p-3">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="break-words text-sm font-medium text-gray-900">{candidate.name}</p>
-          <p className="break-words text-xs text-gray-600">
-            {candidate.brand && <span>{candidate.brand} · </span>}
-            {candidate.serving_label}
-          </p>
-        </div>
+      <label className="flex min-w-0 cursor-pointer items-start gap-2">
+        <input
+          type="radio"
+          name={`match-group-${group.group_id}`}
+          checked={selected}
+          onChange={() => onSelect(match.match_id)}
+          aria-label={`${badge.label}: ${match.name}`}
+          className="mt-1 shrink-0"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-sm font-medium text-gray-900">{match.name}</span>
+          <span className="block break-words text-xs text-gray-600">
+            {match.brand && <span>{match.brand} · </span>}
+            {match.serving_label} ({match.serving_grams} g)
+          </span>
+        </span>
         <span
           className={
             badge.low
@@ -98,58 +95,46 @@ function CandidateCard({
         >
           {badge.label}
         </span>
-      </div>
+      </label>
 
       <dl className="grid w-full min-w-0 grid-cols-2 gap-x-3 gap-y-1">
         {MACRO_ROWS.map(({ key, label }) => (
           <div key={key} className="flex min-w-0 justify-between gap-2 text-xs">
             <dt className="text-gray-600">{label}</dt>
-            <dd className="font-medium text-gray-900">{candidate[key] ?? "—"}</dd>
+            <dd className="font-medium text-gray-900">{match[key] ?? "—"}</dd>
           </div>
         ))}
       </dl>
 
-      {error && (
-        <p role="alert" className="break-words text-xs text-red-800">
-          {error}
+      {match.rank_reasons.length > 0 && (
+        <p className="break-words text-xs text-gray-600">
+          Rank {match.rank}: {match.rank_reasons.join(" · ")}
         </p>
       )}
 
-      {candidate.incomplete ? (
+      {match.source_url && (
+        <a
+          href={match.source_url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs font-medium text-blue-700 underline"
+        >
+          View source
+        </a>
+      )}
+
+      {match.incomplete && (
         <div className="space-y-2">
-          <p className="text-xs text-amber-900">Missing: {candidate.missing_fields.join(", ")}</p>
-          {onComplete && (
+          <p className="text-xs text-amber-900">Missing: {match.missing_fields.join(", ")}</p>
+          {selected && onComplete && (
             <button
               type="button"
-              onClick={() => onComplete(candidate)}
+              onClick={() => onComplete(match)}
               className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Complete with a label
             </button>
           )}
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-xs font-medium text-gray-700">
-            Qty
-            <input
-              type="text"
-              inputMode="decimal"
-              value={quantity}
-              aria-label={`Quantity for ${candidate.name}`}
-              onChange={(event) => setQuantity(event.target.value)}
-              className="ml-1 w-16 rounded border border-gray-300 px-1.5 py-1 text-sm"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void handleAdd()}
-            aria-label={`Add ${candidate.name}`}
-            className="shrink-0 rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Add
-          </button>
         </div>
       )}
     </li>
@@ -157,11 +142,15 @@ function CandidateCard({
 }
 
 export function MealCandidates({ rawInput, onAdd, onComplete }: Props) {
-  const [candidates, setCandidates] = useState<CandidateView[]>([]);
+  const [groups, setGroups] = useState<FoodMatchGroup[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(
@@ -172,20 +161,45 @@ export function MealCandidates({ rawInput, onAdd, onComplete }: Props) {
     [],
   );
 
+  function selections(): Selection[] {
+    const entries: Selection[] = [];
+    for (const group of groups) {
+      const match = group.matches.find((item) => item.match_id === selected[group.group_id]);
+      if (match) {
+        entries.push({ group, match });
+      }
+    }
+    return entries;
+  }
+
   async function handleFind() {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
     setError(null);
-    setCandidates([]);
+    setAddError(null);
+    setGroups([]);
     setWarnings([]);
+    setSelected({});
+    setExpandedGroups({});
     setSearched(false);
     setLoading(true);
     try {
       const result = await interpretMeal(rawInput.trim(), controller.signal);
       if (!controller.signal.aborted) {
-        setCandidates(result.candidates);
+        // Display in rank order; the backend already ranks matches, this keeps
+        // the picker correct even if a payload arrives out of order.
+        const ordered = result.groups.map((group) => ({
+          ...group,
+          matches: [...group.matches].sort((a, b) => a.rank - b.rank),
+        }));
+        setGroups(ordered);
         setWarnings(result.warnings);
+        setSelected(
+          Object.fromEntries(
+            ordered.map((group) => [group.group_id, group.matches[0]?.match_id ?? ""]),
+          ),
+        );
         setSearched(true);
       }
     } catch (cause) {
@@ -199,6 +213,41 @@ export function MealCandidates({ rawInput, onAdd, onComplete }: Props) {
       }
     }
   }
+
+  async function handleAddSelected() {
+    // Never save a partial meal: every selected match must be complete.
+    const complete: { group: FoodMatchGroup; match: CompleteMatch }[] = [];
+    for (const { group, match } of selections()) {
+      if (!isCompleteMatch(match)) {
+        return;
+      }
+      complete.push({ group, match });
+    }
+    if (complete.length === 0) {
+      return;
+    }
+    setAdding(true);
+    setAddError(null);
+    try {
+      const savedFoods = await Promise.all(
+        complete.map(({ match }) => createFood(foodPayload(match))),
+      );
+      complete.forEach(({ group }, index) => {
+        const saved = savedFoods[index];
+        if (saved) {
+          onAdd(saved, group.quantity);
+        }
+      });
+    } catch (cause) {
+      setAddError(errorMessage(cause));
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  const entries = selections();
+  const allSelectedComplete =
+    entries.length > 0 && entries.every(({ match }) => isCompleteMatch(match));
 
   return (
     <section aria-labelledby="meal-candidates-heading" className="w-full min-w-0 space-y-3">
@@ -230,23 +279,66 @@ export function MealCandidates({ rawInput, onAdd, onComplete }: Props) {
           {warning}
         </p>
       ))}
-      {searched && candidates.length === 0 && !loading && (
+      {searched && groups.length === 0 && !loading && (
         <p className="text-sm text-gray-600">
           No foods found. Add one with the form below or search for it manually.
         </p>
       )}
 
-      {candidates.length > 0 && (
-        <ul className="space-y-2">
-          {candidates.map((candidate, index) => (
-            <CandidateCard
-              key={`${candidate.name}-${index}`}
-              candidate={candidate}
-              onAdd={onAdd}
-              onComplete={onComplete}
-            />
-          ))}
-        </ul>
+      {groups.map((group) => {
+        const expanded = expandedGroups[group.group_id] ?? false;
+        const visible = expanded ? group.matches : group.matches.slice(0, INITIAL_VISIBLE_MATCHES);
+        const hiddenCount = group.matches.length - visible.length;
+        return (
+          <div key={group.group_id} className="w-full min-w-0 space-y-2">
+            <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
+              <h3 className="break-words text-sm font-medium text-gray-900">{group.label}</h3>
+              <span className="shrink-0 text-xs text-gray-600">Qty {group.quantity}</span>
+            </div>
+            <ul className="space-y-2">
+              {visible.map((match) => (
+                <MatchCard
+                  key={match.match_id}
+                  group={group}
+                  match={match}
+                  selected={selected[group.group_id] === match.match_id}
+                  onSelect={(matchId) =>
+                    setSelected((previous) => ({ ...previous, [group.group_id]: matchId }))
+                  }
+                  onComplete={onComplete}
+                />
+              ))}
+            </ul>
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedGroups((previous) => ({ ...previous, [group.group_id]: true }))
+                }
+                className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Show more ({hiddenCount})
+              </button>
+            )}
+          </div>
+        );
+      })}
+
+      {addError && (
+        <p role="alert" className="break-words text-xs text-red-800">
+          {addError}
+        </p>
+      )}
+
+      {allSelectedComplete && (
+        <button
+          type="button"
+          disabled={adding}
+          onClick={() => void handleAddSelected()}
+          className="w-full rounded bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Add selected foods
+        </button>
       )}
     </section>
   );

@@ -1,7 +1,7 @@
 import { requestJson } from "./client";
 import type { MacroStrings } from "./meals";
 
-export type CandidateView = {
+export type MatchView = {
   name: string;
   brand: string;
   serving_label: string;
@@ -12,10 +12,21 @@ export type CandidateView = {
   confidence: "high" | "low";
   incomplete: boolean;
   missing_fields: string[];
+  match_id: string;
+  source_key: string | null;
+  rank: number;
+  rank_reasons: string[];
 } & { [Key in keyof MacroStrings]: string | null };
 
+export type FoodMatchGroup = {
+  group_id: string;
+  label: string;
+  quantity: string;
+  matches: MatchView[];
+};
+
 export type InterpretResult = {
-  candidates: CandidateView[];
+  groups: FoodMatchGroup[];
   warnings: string[];
 };
 
@@ -37,7 +48,7 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
 }
 
-function isCandidateView(value: unknown): value is CandidateView {
+function isMatchView(value: unknown): value is MatchView {
   if (!isRecord(value)) {
     return false;
   }
@@ -53,15 +64,31 @@ function isCandidateView(value: unknown): value is CandidateView {
     typeof value.incomplete === "boolean" &&
     Array.isArray(value.missing_fields) &&
     value.missing_fields.every((field) => typeof field === "string") &&
+    typeof value.match_id === "string" &&
+    isNullableString(value.source_key) &&
+    typeof value.rank === "number" &&
+    Array.isArray(value.rank_reasons) &&
+    value.rank_reasons.every((reason) => typeof reason === "string") &&
     MACRO_KEYS.every((key) => isNullableString(value[key]))
+  );
+}
+
+function isFoodMatchGroup(value: unknown): value is FoodMatchGroup {
+  return (
+    isRecord(value) &&
+    typeof value.group_id === "string" &&
+    typeof value.label === "string" &&
+    typeof value.quantity === "string" &&
+    Array.isArray(value.matches) &&
+    value.matches.every(isMatchView)
   );
 }
 
 function isInterpretResult(value: unknown): value is InterpretResult {
   return (
     isRecord(value) &&
-    Array.isArray(value.candidates) &&
-    value.candidates.every(isCandidateView) &&
+    Array.isArray(value.groups) &&
+    value.groups.every(isFoodMatchGroup) &&
     Array.isArray(value.warnings) &&
     value.warnings.every((warning) => typeof warning === "string")
   );
