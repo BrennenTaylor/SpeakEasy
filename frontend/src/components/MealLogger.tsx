@@ -134,7 +134,11 @@ export function MealLogger() {
   }, [rawInput, runPreview]);
 
   function handleAdd(food: Food, quantity = "1") {
-    const nextItems = [...items, { id: nextItemIdRef.current++, food, quantity }];
+    // Build from the ref and update it synchronously: the picker adds every
+    // selected group in one tick, so the render-closure `items` would be stale
+    // for all but the first call and drop foods from the review.
+    const nextItems = [...itemsRef.current, { id: nextItemIdRef.current++, food, quantity }];
+    itemsRef.current = nextItems;
     setError(null);
     setItems(nextItems);
     runPreview(rawInput, nextItems);

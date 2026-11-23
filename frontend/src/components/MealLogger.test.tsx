@@ -78,6 +78,26 @@ const candidateFood: Food = {
   calories: "465.6300",
 };
 
+const sodaFood: Food = {
+  ...food,
+  id: 3,
+  name: "Coca-Cola Classic",
+  brand: "Coca-Cola",
+  serving_label: "1 can",
+  serving_grams: "355.0000",
+  source: "web_search",
+  source_url: "https://example.com/coca-cola",
+  confidence: "low",
+  aliases: [],
+  calories: "140.0000",
+  protein_g: "0.0000",
+  carbs_g: "39.0000",
+  fat_g: "0.0000",
+  fiber_g: "0.0000",
+  sugar_g: "39.0000",
+  sodium_mg: "45.0000",
+};
+
 const interpretationResult = {
   groups: [
     {
@@ -96,6 +116,30 @@ const interpretationResult = {
           source_key: "170790",
           rank: 1,
           rank_reasons: ["brand match", "complete macros", "USDA source"],
+        },
+      ],
+    },
+  ],
+  warnings: [],
+};
+
+const twoGroupInterpretation = {
+  groups: [
+    ...interpretationResult.groups,
+    {
+      group_id: "1",
+      label: sodaFood.name,
+      quantity: "2.0000",
+      matches: [
+        {
+          ...sodaFood,
+          quantity: "2.0000",
+          incomplete: false,
+          missing_fields: [],
+          match_id: "web:0",
+          source_key: null,
+          rank: 1,
+          rank_reasons: ["name match", "complete macros", "web source"],
         },
       ],
     },
@@ -128,7 +172,9 @@ function stubFetch(options: StubOptions = {}) {
       return Promise.resolve(jsonResponse({ status: "ok" }));
     }
     if (url === "/api/foods" && init?.method === "POST") {
-      return Promise.resolve(jsonResponse(candidateFood, 201));
+      const body = JSON.parse(String(init.body ?? "{}")) as { name?: unknown };
+      const created = body.name === sodaFood.name ? sodaFood : candidateFood;
+      return Promise.resolve(jsonResponse(created, 201));
     }
     if (url.startsWith("/api/foods")) {
       return Promise.resolve(jsonResponse([food]));
@@ -456,6 +502,54 @@ describe("MealLogger", () => {
     const createCall = findCall(fetchMock, "/api/meals", "POST");
     expect(JSON.parse(String(createCall?.[1]?.body)).items).toEqual([
       { food_id: 2, quantity: "1.0000", unit: "serving" },
+    ]);
+  });
+
+  it("keeps every group's selected food when adding them in one batch", async () => {
+    const user = userEvent.setup();
+    const twoItemTotals: MacroStrings = {
+      calories: "745.6300",
+      protein_g: "30.4000",
+      carbs_g: "117.1000",
+      fat_g: "20.9000",
+      fiber_g: "2.6000",
+      sugar_g: "78.0000",
+      sodium_mg: "1497.0000",
+    };
+    const fetchMock = stubFetch({ interpret: twoGroupInterpretation, preview: twoItemTotals });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "a sandwich and two cokes",
+    );
+    await user.click(screen.getByRole("button", { name: /find foods/i }));
+    await user.click(await screen.findByRole("button", { name: /add selected foods/i }));
+
+    // Both foods must reach the review, not just the last one added.
+    expect(
+      await screen.findByRole("textbox", { name: /quantity for chick-fil-a sandwich/i }),
+    ).toHaveValue("1.0000");
+    expect(screen.getByRole("textbox", { name: /quantity for coca-cola classic/i })).toHaveValue(
+      "2.0000",
+    );
+
+    await waitFor(() =>
+      expect(lastPreviewItems(fetchMock)).toEqual([
+        { food_id: 2, quantity: "1.0000", unit: "serving" },
+        { food_id: 3, quantity: "2.0000", unit: "serving" },
+      ]),
+    );
+    expect(screen.getByText("745.6300")).toBeInTheDocument();
+
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    const createCall = findCall(fetchMock, "/api/meals", "POST");
+    expect(JSON.parse(String(createCall?.[1]?.body)).items).toEqual([
+      { food_id: 2, quantity: "1.0000", unit: "serving" },
+      { food_id: 3, quantity: "2.0000", unit: "serving" },
     ]);
   });
 
