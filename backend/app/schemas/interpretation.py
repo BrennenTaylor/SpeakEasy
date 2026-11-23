@@ -49,10 +49,30 @@ class CandidateView(BaseModel):
     sodium_mg: DecimalText | None = None
 
 
+class MatchView(CandidateView):
+    """A ranked candidate match within a group. Rank starts at 1."""
+
+    match_id: str
+    source_key: str | None
+    rank: int = Field(ge=1)
+    rank_reasons: list[str]
+
+
+class FoodMatchGroup(BaseModel):
+    """One interpreted food item and its ranked match options."""
+
+    group_id: str
+    label: str
+    quantity: DecimalText
+    matches: list[MatchView]
+
+
 class InterpretRequest(BaseModel):
     description: str = Field(min_length=1, max_length=500)
 
 
 class InterpretResponse(BaseModel):
-    candidates: list[CandidateView]
+    groups: list[FoodMatchGroup] = Field(default_factory=list)
+    # Deprecated: kept for compatibility until Task 4 removes it.
+    candidates: list[CandidateView] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

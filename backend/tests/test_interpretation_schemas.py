@@ -64,3 +64,51 @@ def test_invalid_source_url_is_rejected() -> None:
                 "source_url": "not-a-url",
             }
         )
+
+
+def test_interpret_response_groups_ranked_matches() -> None:
+    from app.schemas.interpretation import FoodMatchGroup, InterpretResponse, MatchView
+
+    match = MatchView.model_validate(
+        {
+            "match_id": "usda:170303",
+            "source_key": "170303",
+            "rank": 1,
+            "rank_reasons": ["brand match", "complete macros"],
+            "name": "CHICK-FIL-A, Chick-n-Strips",
+            "brand": "",
+            "serving_label": "4 pieces",
+            "serving_grams": "201.0000",
+            "quantity": "1.0000",
+            "source": "usda_fdc",
+            "source_url": "https://fdc.nal.usda.gov/fdc-app.html#/food-details/170303/nutrients",
+            "confidence": "high",
+            "incomplete": False,
+            "missing_fields": [],
+            "calories": "458.2800",
+            "protein_g": "43.0140",
+            "carbs_g": "20.8839",
+            "fat_g": "22.5120",
+            "fiber_g": "1.8090",
+            "sugar_g": "2.4924",
+            "sodium_mg": "1159.7700",
+        }
+    )
+    response = InterpretResponse.model_validate(
+        {
+            "groups": [
+                {
+                    "group_id": "0",
+                    "label": "12 ct Chick-fil-A Nuggets",
+                    "quantity": "1.0000",
+                    "matches": [match.model_dump(mode="json")],
+                }
+            ],
+            "warnings": [],
+        }
+    )
+
+    assert isinstance(response.groups[0], FoodMatchGroup)
+    assert response.groups[0].matches[0].match_id == "usda:170303"
+    assert response.groups[0].matches[0].rank == 1
+    assert response.groups[0].matches[0].name == "CHICK-FIL-A, Chick-n-Strips"
