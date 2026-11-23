@@ -104,7 +104,7 @@ class OpenAIInterpreter(MealInterpreter):
         self,
         api_key: str,
         model: str = "gpt-6-luna",
-        timeout_seconds: float = 10.0,
+        timeout_seconds: float = 20.0,
         max_candidates: int = 4,
         client: httpx.Client | None = None,
     ) -> None:

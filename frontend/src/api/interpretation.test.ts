@@ -65,7 +65,7 @@ describe("interpretation client", () => {
         body: JSON.stringify({ description: "chick fil a sandwich" }),
       }),
     );
-    expect(timeoutSpy).toHaveBeenCalledWith(30_000);
+    expect(timeoutSpy).toHaveBeenCalledWith(60_000);
   });
 
   it("passes a caller signal through to the request", async () => {

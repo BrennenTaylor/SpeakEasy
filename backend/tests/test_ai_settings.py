@@ -12,7 +12,7 @@ def test_ai_settings_defaults_and_env_override(
     settings = Settings()
     assert settings.openai_api_key is None
     assert settings.ai_model == "gpt-6-luna"
-    assert settings.ai_timeout_seconds == 10.0
+    assert settings.ai_timeout_seconds == 20.0
     assert settings.usda_api_key == "DEMO_KEY"
 
     monkeypatch.setenv("APP_OPENAI_API_KEY", "server-only-key")
