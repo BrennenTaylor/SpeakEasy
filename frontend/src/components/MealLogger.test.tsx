@@ -79,14 +79,25 @@ const candidateFood: Food = {
 };
 
 const interpretationResult = {
-  candidates: [
+  groups: [
     {
-      ...candidateFood,
+      group_id: "0",
+      label: candidateFood.name,
       quantity: "1.0000",
-      source: "usda_fdc",
-      confidence: "high",
-      incomplete: false,
-      missing_fields: [],
+      matches: [
+        {
+          ...candidateFood,
+          quantity: "1.0000",
+          source: "usda_fdc",
+          confidence: "high",
+          incomplete: false,
+          missing_fields: [],
+          match_id: "usda:170790",
+          source_key: "170790",
+          rank: 1,
+          rank_reasons: ["brand match", "complete macros", "USDA source"],
+        },
+      ],
     },
   ],
   warnings: [],
@@ -421,7 +432,7 @@ describe("MealLogger", () => {
     expect(findCall(fetchMock, "/api/meals", "POST")).toBeUndefined();
   });
 
-  it("adds an AI candidate to the review and confirms it", async () => {
+  it("adds an AI match to the review and confirms it", async () => {
     const user = userEvent.setup();
     const fetchMock = stubFetch();
     render(<MealLogger />);
@@ -431,7 +442,7 @@ describe("MealLogger", () => {
       "chick fil a sandwich",
     );
     await user.click(screen.getByRole("button", { name: /find foods/i }));
-    await user.click(await screen.findByRole("button", { name: `Add ${candidateFood.name}` }));
+    await user.click(await screen.findByRole("button", { name: /add selected foods/i }));
 
     await waitFor(() =>
       expect(lastPreviewItems(fetchMock)).toEqual([
@@ -473,20 +484,31 @@ describe("MealLogger", () => {
     ]);
   });
 
-  it("prefills the create form for an incomplete candidate without losing the source URL", async () => {
+  it("prefills the create form for an incomplete match without losing the source URL", async () => {
     const user = userEvent.setup();
     const fetchMock = stubFetch({
       interpret: {
-        candidates: [
+        groups: [
           {
-            ...candidateFood,
-            source: "web_search",
-            source_url: "https://example.com/menu",
-            confidence: "low",
+            group_id: "0",
+            label: candidateFood.name,
             quantity: "1.0000",
-            incomplete: true,
-            missing_fields: ["sugar_g"],
-            sugar_g: null,
+            matches: [
+              {
+                ...candidateFood,
+                source: "web_search",
+                source_url: "https://example.com/menu",
+                confidence: "low",
+                quantity: "1.0000",
+                incomplete: true,
+                missing_fields: ["sugar_g"],
+                sugar_g: null,
+                match_id: "web:0",
+                source_key: null,
+                rank: 1,
+                rank_reasons: ["web source"],
+              },
+            ],
           },
         ],
         warnings: [],

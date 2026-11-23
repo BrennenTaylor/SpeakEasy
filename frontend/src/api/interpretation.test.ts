@@ -2,28 +2,39 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { interpretMeal } from "./interpretation";
 
+const match = {
+  name: "Chick-fil-A sandwich",
+  brand: "Chick-fil-A",
+  serving_label: "1 sandwich",
+  serving_grams: "187.0000",
+  quantity: "1.0000",
+  source: "usda_fdc",
+  source_url: "https://fdc.example/170790",
+  confidence: "high",
+  incomplete: false,
+  missing_fields: [],
+  calories: "465.6300",
+  protein_g: "30.4000",
+  carbs_g: "39.1000",
+  fat_g: "20.9000",
+  fiber_g: "2.6000",
+  sugar_g: "0.0000",
+  sodium_mg: "1407.0000",
+  match_id: "usda:170790",
+  source_key: "170790",
+  rank: 1,
+  rank_reasons: ["brand match", "complete macros", "USDA source"],
+};
+
+const group = {
+  group_id: "0",
+  label: "Chick-fil-A sandwich",
+  quantity: "1.0000",
+  matches: [match],
+};
+
 const result = {
-  candidates: [
-    {
-      name: "Chick-fil-A sandwich",
-      brand: "Chick-fil-A",
-      serving_label: "1 sandwich",
-      serving_grams: "187.0000",
-      quantity: "1.0000",
-      source: "usda_fdc",
-      source_url: "https://fdc.example/170790",
-      confidence: "high",
-      incomplete: false,
-      missing_fields: [],
-      calories: "465.6300",
-      protein_g: "30.4000",
-      carbs_g: "39.1000",
-      fat_g: "20.9000",
-      fiber_g: "2.6000",
-      sugar_g: "0.0000",
-      sodium_mg: "1407.0000",
-    },
-  ],
+  groups: [group],
   warnings: [],
 };
 
@@ -68,30 +79,35 @@ describe("interpretation client", () => {
     expect(init?.signal).toBeDefined();
   });
 
-  it("rejects a candidate with an unknown source", async () => {
+  it("rejects a match with an unknown source", async () => {
     const invalid = {
       ...result,
-      candidates: [{ ...result.candidates[0], source: "made_up" }],
+      groups: [{ ...group, matches: [{ ...match, source: "made_up" }] }],
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(invalid)));
 
     await expect(interpretMeal("lunch")).rejects.toThrow("Server returned an unexpected response");
   });
 
-  it("accepts an incomplete candidate with null macros", async () => {
+  it("accepts an incomplete match with null macros", async () => {
     const incomplete = {
       ...result,
-      candidates: [
+      groups: [
         {
-          ...result.candidates[0],
-          incomplete: true,
-          missing_fields: ["sugar_g"],
-          sugar_g: null,
+          ...group,
+          matches: [{ ...match, incomplete: true, missing_fields: ["sugar_g"], sugar_g: null }],
         },
       ],
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(incomplete)));
 
     await expect(interpretMeal("lunch")).resolves.toEqual(incomplete);
+  });
+
+  it("rejects a legacy candidates response", async () => {
+    const legacy = { candidates: [match], warnings: [] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(legacy)));
+
+    await expect(interpretMeal("lunch")).rejects.toThrow("Server returned an unexpected response");
   });
 });
