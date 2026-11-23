@@ -193,3 +193,65 @@ def test_usda_failure_falls_back_to_web_with_warning() -> None:
     assert view.confidence == "low"
     assert warning is not None
     assert "429" in warning
+
+
+def test_mismatched_usda_food_falls_back_to_web() -> None:
+    candidate = raw(
+        name="12 ct Chick-fil-A Nuggets",
+        serving_label="12-count serving",
+        serving_grams="170",
+        calories="380",
+    )
+    food = _fdc_food("201")
+    food["description"] = "CHICK-FIL-A, Chick-n-Strips"
+    client = mock_client(
+        {
+            "foods": [
+                {
+                    **search_hit(),
+                    "description": "CHICK-FIL-A, Chick-n-Strips",
+                }
+            ]
+        },
+        food,
+    )
+
+    view, warning = resolve_candidate(candidate, api_key="free-key", client=client)
+
+    assert view.source == "web_search"
+    assert view.serving_label == "12-count serving"
+    assert str(view.serving_grams) == "170.0000"
+    assert str(view.calories) == "380.0000"
+    assert warning == "No USDA match found"
+
+
+def test_mismatched_usda_brand_falls_back_to_web() -> None:
+    candidate = raw(
+        name="Medium Mac & Cheese",
+        serving_label="Medium serving",
+        serving_grams="227",
+        calories="450",
+    )
+    food = _fdc_food("113")
+    food.update(
+        {
+            "description": "MAC & CHEESE",
+            "dataType": "Branded",
+            "brandOwner": "Blount Seafood Corporation",
+        }
+    )
+    search_result = {
+        **search_hit(),
+        "description": "MAC & CHEESE",
+        "dataType": "Branded",
+        "brandOwner": "Blount Seafood Corporation",
+    }
+    client = mock_client({"foods": [search_result]}, food)
+
+    view, warning = resolve_candidate(candidate, api_key="free-key", client=client)
+
+    assert view.source == "web_search"
+    assert view.serving_label == "Medium serving"
+    assert str(view.serving_grams) == "227.0000"
+    assert str(view.calories) == "450.0000"
+    assert warning == "No USDA match found"

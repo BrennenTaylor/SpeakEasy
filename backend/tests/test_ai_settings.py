@@ -1,9 +1,14 @@
+from pathlib import Path
+
 import pytest
 
 
-def test_ai_settings_defaults_and_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ai_settings_defaults_and_env_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from app.core.config import Settings
 
+    monkeypatch.chdir(tmp_path)
     settings = Settings()
     assert settings.openai_api_key is None
     assert settings.ai_model == "gpt-6-luna"

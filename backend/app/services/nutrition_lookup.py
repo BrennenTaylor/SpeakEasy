@@ -60,6 +60,58 @@ def _normalize(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+_SIZE_TOKENS = {
+    "box",
+    "count",
+    "ct",
+    "cup",
+    "cups",
+    "large",
+    "medium",
+    "piece",
+    "pieces",
+    "regular",
+    "serving",
+    "servings",
+    "small",
+}
+
+
+def _stem(token: str) -> str:
+    return token[:-1] if len(token) > 3 and token.endswith("s") else token
+
+
+def _tokens(text: str) -> set[str]:
+    return {
+        _stem(token) for token in _normalize(text).split() if len(token) > 1 and not token.isdigit()
+    }
+
+
+def _food_tokens(raw: RawCandidate) -> set[str]:
+    brand_tokens = set(_normalize(raw.brand).split())
+    return {
+        token
+        for token in _tokens(raw.name)
+        if token not in brand_tokens and token not in _SIZE_TOKENS
+    }
+
+
+def _brand_matches(raw: RawCandidate, food: dict[str, Any]) -> bool:
+    brand = _normalize(raw.brand)
+    if not brand:
+        return True
+    fields = (food.get("brandOwner"), food.get("brandName"), food.get("description"))
+    return any(brand in _normalize(str(value)) for value in fields if value)
+
+
+def _food_matches(raw: RawCandidate, food: dict[str, Any]) -> bool:
+    wanted = _food_tokens(raw)
+    if not wanted:
+        return True
+    description = _tokens(str(food.get("description") or ""))
+    return bool(wanted & description)
+
+
 def _format_amount(amount: Decimal) -> str:
     if amount == amount.to_integral_value():
         return str(int(amount))
@@ -125,15 +177,17 @@ def _fdc_id(item: dict[str, Any]) -> int | None:
         return None
 
 
-def _rank_foods(foods: list[Any], name: str) -> list[dict[str, Any]]:
-    wanted = _normalize(name)
-    wanted_tokens = set(wanted.split())
+def _rank_foods(foods: list[Any], raw: RawCandidate) -> list[dict[str, Any]]:
+    wanted = _normalize(raw.name)
+    wanted_tokens = _tokens(raw.name)
     ranked: list[tuple[tuple[int, int, str], dict[str, Any]]] = []
     for entry in foods:
         food = _as_dict(entry)
         if food is None:
             continue
         if food.get("dataType") not in _ALLOWED_DATA_TYPES:
+            continue
+        if not _brand_matches(raw, food) or not _food_matches(raw, food):
             continue
         description = _normalize(str(food.get("description") or ""))
         exact = 0 if wanted in description or description in wanted else 1
@@ -233,7 +287,7 @@ def _resolve_usda(
     if not foods:
         return None, "No USDA match found"
 
-    ranked = _rank_foods(foods, raw.name)
+    ranked = _rank_foods(foods, raw)
     if not ranked:
         return None, "No USDA match found"
     fdc_id = _fdc_id(ranked[0])

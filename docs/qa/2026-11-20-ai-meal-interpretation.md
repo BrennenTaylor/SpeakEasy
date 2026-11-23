@@ -53,6 +53,17 @@ Open <http://localhost:5173> in a 390 px-wide viewport. Verify the backend with 
 5. Change the candidate's quantity from `1.0000` to `2`. Expected: the **Meal review** preview doubles every macro value. The browser does not compute totals; the preview comes from backend `Decimal` arithmetic.
 6. Click **Confirm**. Expected: the draft clears, **Recent meals** gains the entry, and a new meal appears in `curl -s http://localhost:8000/api/meals` with `raw_input` `chick fil a sandwich`. Its item keeps the serving, `source`, `source_url`, `confidence`, and macro snapshot from the candidate.
 
+## 3b. Reject USDA matches for the wrong food or brand
+
+This case prevents FDC `170303` (**Chick-fil-A Chick-n-Strips**, `4 pieces` / `201 g`) and FDC `1894006` (**Blount Seafood MAC & CHEESE**, `0.5 cup` / `113 g`) from overwriting a correct branded web result.
+
+1. In **Describe your meal**, type `chick fil a 12 count nuggets and mac and cheese`.
+2. Click **Find foods**.
+3. Expected: two `Web · low confidence` cards and two warnings reading `No USDA match found`.
+4. The nugget card should show `12 nuggets` / `170 g` and `380` calories. It must **not** show `4 pieces`, `201 g`, or `Chick-n-Strips` values.
+5. The mac and cheese card should show `Medium` / `227 g` and `450` calories. It must **not** show `0.5 cup` or `113 g`.
+6. Spot-check that each card's `source_url` points to the Chick-fil-A nutrition page. Exact label wording can vary between model runs; the serving grams and macros should match the linked page.
+
 ## 4. Prove interpretation itself writes nothing
 
 Before clicking **Add** or **Confirm**, capture the counts:
