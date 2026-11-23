@@ -61,6 +61,27 @@ def test_interpreter_parses_candidates_and_uses_server_key() -> None:
     assert "source URL" in json.dumps(body["input"])
 
 
+def test_interpreter_uses_twenty_second_default_timeout() -> None:
+    class TimeoutRecordingClient:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        def post(
+            self, url: str, *, headers: dict[str, str], json: object, timeout: float
+        ) -> httpx.Response:
+            self.timeouts.append(timeout)
+            response = response_with([CANDIDATE])
+            response.request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+            return response
+
+    client = TimeoutRecordingClient()
+    interpreter = OpenAIInterpreter("server-only-key", client=client)  # type: ignore[arg-type]
+
+    interpreter.interpret("sandwich")
+
+    assert client.timeouts == [20.0]
+
+
 def test_interpreter_retries_transport_errors_once() -> None:
     calls = 0
 

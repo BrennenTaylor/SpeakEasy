@@ -99,6 +99,6 @@ export function interpretMeal(description: string, signal?: AbortSignal): Promis
     "/api/meals/interpret",
     { method: "POST", body: JSON.stringify({ description }), signal },
     isInterpretResult,
-    30_000,
+    60_000,
   );
 }
