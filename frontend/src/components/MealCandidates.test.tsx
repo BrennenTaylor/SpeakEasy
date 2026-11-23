@@ -271,6 +271,119 @@ describe("MealCandidates", () => {
     expect(onAdd).toHaveBeenCalledWith(stripsFood, "2.0000");
   });
 
+  it("clears the picker after a successful add so a second Add creates nothing", async () => {
+    const onAdd = vi.fn();
+    mocks.interpretMeal.mockResolvedValue({
+      groups: [{ group_id: "0", label: "Strips", quantity: "1.0000", matches: [stripsMatch] }],
+      warnings: [],
+    });
+    mocks.createFood.mockResolvedValue(stripsFood);
+    render(<MealCandidates rawInput="strips" onAdd={onAdd} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /find foods/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /add selected foods/i }));
+
+    await waitFor(() => expect(onAdd).toHaveBeenCalledWith(stripsFood, "1.0000"));
+    expect(mocks.createFood).toHaveBeenCalledTimes(1);
+
+    // The picker is cleared: no cards, no Add button to tap again, and no way
+    // to re-create the same foods.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /add selected foods/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText(stripsMatch.name)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no foods found/i)).not.toBeInTheDocument();
+    expect(mocks.createFood).toHaveBeenCalledTimes(1);
+    expect(onAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries only the foods that failed and never re-creates saved ones", async () => {
+    const onAdd = vi.fn();
+    mocks.interpretMeal.mockResolvedValue({
+      groups: [
+        { group_id: "0", label: "Nuggets", quantity: "1.0000", matches: [webMatch] },
+        { group_id: "1", label: "Strips", quantity: "2.0000", matches: [stripsMatch] },
+      ],
+      warnings: [],
+    });
+    let stripsAttempts = 0;
+    mocks.createFood.mockImplementation(async (payload: { name: string }) => {
+      if (payload.name === stripsMatch.name) {
+        stripsAttempts += 1;
+        if (stripsAttempts === 1) {
+          throw new Error("Server responded with 500");
+        }
+        return stripsFood;
+      }
+      return webFood;
+    });
+    render(<MealCandidates rawInput="nuggets and strips" onAdd={onAdd} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /find foods/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /add selected foods/i }));
+
+    // First attempt: the web food saved and entered review; the strips food
+    // failed and is reported per item while the picker stays for a retry.
+    await waitFor(() => expect(onAdd).toHaveBeenCalledWith(webFood, "1.0000"));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(stripsMatch.name);
+    expect(alert).toHaveTextContent(/retry adds only the failed foods/i);
+    expect(screen.getByRole("button", { name: /add selected foods/i })).toBeEnabled();
+
+    // Retry: only the failed strips food is sent again.
+    fireEvent.click(screen.getByRole("button", { name: /add selected foods/i }));
+
+    await waitFor(() => expect(onAdd).toHaveBeenCalledWith(stripsFood, "2.0000"));
+    expect(mocks.createFood).toHaveBeenCalledTimes(3);
+    expect(
+      mocks.createFood.mock.calls.filter(([payload]) => payload.name === stripsMatch.name),
+    ).toHaveLength(2);
+    expect(
+      mocks.createFood.mock.calls.filter(([payload]) => payload.name === webMatch.name),
+    ).toHaveLength(1);
+
+    // Everything is saved now: the picker clears and nothing remains to retry.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /add selected foods/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("retries a group's own selection when the same match is selected in two groups", async () => {
+    // Match ids repeat across groups; saving one group's selection must not
+    // mark the other group's identical selection as already created.
+    const onAdd = vi.fn();
+    mocks.interpretMeal.mockResolvedValue({
+      groups: [
+        { group_id: "0", label: "Strips", quantity: "1.0000", matches: [stripsMatch] },
+        { group_id: "1", label: "More strips", quantity: "2.0000", matches: [stripsMatch] },
+      ],
+      warnings: [],
+    });
+    let attempts = 0;
+    mocks.createFood.mockImplementation(async () => {
+      attempts += 1;
+      if (attempts === 2) {
+        throw new Error("Server responded with 500");
+      }
+      return stripsFood;
+    });
+    render(<MealCandidates rawInput="strips and more strips" onAdd={onAdd} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /find foods/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /add selected foods/i }));
+
+    // First attempt: the first group's food saved, the second failed.
+    await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not add/i);
+
+    // Retry: the second group's selection is still pending and gets created.
+    fireEvent.click(screen.getByRole("button", { name: /add selected foods/i }));
+
+    await waitFor(() => expect(onAdd).toHaveBeenCalledWith(stripsFood, "2.0000"));
+    expect(mocks.createFood).toHaveBeenCalledTimes(3);
+  });
+
   it("hides Add selected foods until every selected match is complete", async () => {
     const incompleteWeb = {
       ...webMatch,

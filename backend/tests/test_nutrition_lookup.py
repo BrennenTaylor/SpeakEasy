@@ -1,6 +1,6 @@
 import httpx
 
-from app.schemas.interpretation import RawCandidate
+from app.schemas.interpretation import MatchView, RawCandidate
 from app.services.nutrition_lookup import resolve_matches
 
 BASE = {
@@ -477,6 +477,106 @@ def test_resolve_matches_deduplicates_within_source_only() -> None:
     matches, _ = resolve_matches(raw(name="Chick-fil-A Nuggets"), api_key="free-key", client=client)
 
     assert [match.match_id for match in matches] == ["usda:170790", "web:0"]
+
+
+def test_overlong_serving_label_is_truncated_to_schema_cap() -> None:
+    # A 120-char modifier once built a serving_label past MatchView's 100-char
+    # cap; the ValidationError then took down the whole interpretation request.
+    modifier = "nuggets " * 15
+    good = _fdc_food("187")
+    good["fdcId"] = 170790
+    good["description"] = "CHICK-FIL-A, Nuggets"
+    overlong = _fdc_food("187")
+    overlong["fdcId"] = 170791
+    overlong["description"] = "CHICK-FIL-A, Nuggets, 12 count"
+    overlong["foodPortions"] = [{"amount": 1, "modifier": modifier, "gramWeight": 187.0}]
+    client = mock_client_with_details(
+        {
+            "foods": [
+                {"fdcId": 170790, "description": good["description"], "dataType": "SR Legacy"},
+                {"fdcId": 170791, "description": overlong["description"], "dataType": "SR Legacy"},
+            ]
+        },
+        {170790: good, 170791: overlong},
+    )
+
+    matches, warnings = resolve_matches(
+        raw(name="Chick-fil-A Nuggets", serving_grams="170", calories="380"),
+        api_key="free-key",
+        client=client,
+    )
+
+    # The overlong record survives with a schema-valid label; the sibling and
+    # the web fallback keep their places.
+    assert [match.match_id for match in matches] == ["usda:170790", "usda:170791", "web:0"]
+    overlong_view = next(match for match in matches if match.match_id == "usda:170791")
+    assert overlong_view.serving_label == f"1 {modifier.strip()}"[:100]
+    assert len(overlong_view.serving_label) == 100
+    assert warnings == []
+
+
+def test_unusable_usda_record_drops_while_sibling_matches_survive(monkeypatch) -> None:
+    # The truncation keeps today's overlong labels valid, but any future
+    # external-data/schema mismatch must still degrade one record to a
+    # warning instead of failing the whole request. The injection below
+    # simulates such a mismatch while building the bad record's view.
+    from app.services import nutrition_lookup as lookup
+
+    good = _fdc_food("187")
+    good["fdcId"] = 170790
+    good["description"] = "CHICK-FIL-A, Nuggets"
+    bad = _fdc_food("187")
+    bad["fdcId"] = 170791
+    bad["description"] = "CHICK-FIL-A, Nuggets, 12 count"
+    bad["foodPortions"] = [{"amount": 1, "modifier": "nuggets " * 15, "gramWeight": 187.0}]
+    bad_page = lookup._FDC_PAGE.format(id=170791)
+    real_view = lookup._view
+
+    def view_rejecting_bad_record(*args: object, **kwargs: object) -> MatchView:
+        if kwargs.get("source_url") == bad_page:
+            MatchView.model_validate({"serving_label": "x" * 120})  # raises ValidationError
+        return real_view(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(lookup, "_view", view_rejecting_bad_record)
+    client = mock_client_with_details(
+        {
+            "foods": [
+                {"fdcId": 170790, "description": good["description"], "dataType": "SR Legacy"},
+                {"fdcId": 170791, "description": bad["description"], "dataType": "SR Legacy"},
+            ]
+        },
+        {170790: good, 170791: bad},
+    )
+
+    matches, warnings = resolve_matches(
+        raw(name="Chick-fil-A Nuggets", serving_grams="170", calories="380"),
+        api_key="free-key",
+        client=client,
+    )
+
+    # The unusable record drops with a warning; the sibling USDA match and the
+    # web fallback keep the meal resolvable.
+    assert [match.match_id for match in matches] == ["usda:170790", "web:0"]
+    assert "USDA record was unusable" in warnings
+
+
+def test_long_name_and_brand_are_truncated_to_schema_cap() -> None:
+    food = _fdc_food("187")
+    food["description"] = "N" * 250
+    food["brandOwner"] = "B" * 250
+    client = mock_client(
+        {"foods": [{**search_hit(), "description": "CHICK-FIL-A, Nuggets"}]},
+        food,
+    )
+
+    matches, _ = resolve_matches(
+        raw(name="Chick-fil-A Nuggets", serving_grams="170", calories="380"),
+        api_key="free-key",
+        client=client,
+    )
+
+    assert len(matches[0].name) == 200
+    assert len(matches[0].brand) == 200
 
 
 def test_resolve_matches_ranks_and_explains_matches() -> None:

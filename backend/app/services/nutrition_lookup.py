@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, NamedTuple, cast
 
 import httpx
+from pydantic import ValidationError
 
 from app.domain.nutrition import MACRO_FIELDS, _quantize
 from app.schemas.interpretation import MatchView, RawCandidate
@@ -369,28 +370,36 @@ def _fetch_usda_detail(
         return None, "USDA record had no portion"
     serving_label, serving_grams = portion
     # Cards show the source record's own identity; the schema caps display text
-    # at 200 chars. Truncation never touches nutrient values.
+    # at 200 chars for name/brand and 100 chars for serving_label. Truncation
+    # never touches nutrient values.
+    serving_label = serving_label[:100]
     name = str(food.get("description") or hit.get("description") or "").strip()[:200]
     if not name:
         return None, "USDA record was unusable"
     brand = str(food.get("brandOwner") or food.get("brandName") or "").strip()[:200]
     values = _nutrient_amounts(food, serving_grams)
     missing = [field for field in MACRO_FIELDS if values[field] is None]
-    return (
-        _view(
-            values,
-            missing,
-            raw=raw,
-            serving_label=serving_label,
-            serving_grams=serving_grams,
-            source="usda_fdc",
-            source_url=_FDC_PAGE.format(id=fdc_id),
-            confidence="high" if not missing else "low",
-            name=name,
-            brand=brand,
-        ),
-        "USDA record was incomplete" if missing else None,
-    )
+    try:
+        return (
+            _view(
+                values,
+                missing,
+                raw=raw,
+                serving_label=serving_label,
+                serving_grams=serving_grams,
+                source="usda_fdc",
+                source_url=_FDC_PAGE.format(id=fdc_id),
+                confidence="high" if not missing else "low",
+                name=name,
+                brand=brand,
+            ),
+            "USDA record was incomplete" if missing else None,
+        )
+    except ValidationError:
+        # A record that cannot produce a schema-valid match (a future
+        # external-data/schema mismatch) degrades to one dropped card instead
+        # of failing every group in the request.
+        return None, "USDA record was unusable"
 
 
 def _resolve_usda_matches(

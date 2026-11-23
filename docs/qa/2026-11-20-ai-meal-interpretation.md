@@ -1,8 +1,16 @@
 # AI Meal Interpretation QA Steps
 
+> **Partially superseded (2026-11-22):** the interpret response now returns one
+> **group** per interpreted food, each holding ranked **matches**, and the
+> per-card **Add** buttons are gone; selection happens per group and saving uses
+> **Add selected foods**. The steps below have been updated to match that
+> behavior. The full current flow, including ranked matches, Show more, and
+> retry/duplicate-prevention details, is covered by
+> `docs/qa/2026-11-22-food-match-picker.md` — prefer that runbook.
+
 ## Scope
 
-These steps validate the AI-assisted meal entry flow: a description is interpreted, foods are looked up from real sources, the user reviews candidates, and a meal is saved only after **Confirm**.
+These steps validate the AI-assisted meal entry flow: a description is interpreted, foods are looked up from real sources, the user reviews ranked match groups, and a meal is saved only after **Confirm**.
 
 Run every command from the repository root. The paths are relative and work on `main` or any branch that contains these changes. Tests mock all providers; the manual steps below use live services.
 
@@ -41,17 +49,17 @@ Open <http://localhost:5173> in a 390 px-wide viewport. Verify the backend with 
 
 1. In **Describe your meal**, type `chick fil a sandwich`.
 2. Click **Find foods**. Do not expect a call on every keystroke.
-3. Expected states, in order: `Finding foods…`, then one or more candidate cards. No card should appear before the button is clicked.
-4. On the Chick-fil-A candidate, verify:
+3. Expected states, in order: `Finding foods…`, then one match group per interpreted food, each with its own heading and `Qty` value. No card should appear before the button is clicked.
+4. On the Chick-fil-A group, verify on its match card:
    - A source badge: `USDA · high confidence` when FDC supplied all seven values, `USDA · low confidence` for an incomplete FDC record, or `Web · low confidence` when the web fallback was used.
    - A serving of `1 sandwich` / `187 g` for FDC food `170790`.
    - All seven macro values are present, not `—`: calories, protein, carbs, fat, fiber, sugar, sodium.
    - A `source_url` link on the card or in the saved food when inspected via `curl -s http://localhost:8000/api/foods`.
 
-   For FDC `170790`, the per-100 g values `249 kcal`, `16.28 g protein`, `20.89 g carbs`, `11.19 g fat`, `1.4 g fiber`, and `753 mg sodium` scale by `1.87` to approximately `465.63`, `30.44`, `39.06`, `20.93`, `2.62`, and `1408.11`. FDC does not provide sugar for this item. If neither source supplies sugar, the card shows `Missing: sugar_g`, has no **Add** button, and offers **Complete with a label**. Enter the sugar value from the menu/label to continue; the saved food then has `source: "user_label"`, `confidence: "low"`, and retains its `source_url`.
+   For FDC `170790`, the per-100 g values `249 kcal`, `16.28 g protein`, `20.89 g carbs`, `11.19 g fat`, `1.4 g fiber`, and `753 mg sodium` scale by `1.87` to approximately `465.63`, `30.44`, `39.06`, `20.93`, `2.62`, and `1408.11`. FDC does not provide sugar for this item. If neither source supplies sugar, the card shows `Missing: sugar_g` and **Add selected foods** stays hidden; the selected card offers **Complete with a label**. Enter the sugar value from the menu/label to continue; the saved food then has `source: "user_label"`, `confidence: "low"`, and retains its `source_url`.
 
-5. Change the candidate's quantity from `1.0000` to `2`. Expected: the **Meal review** preview doubles every macro value. The browser does not compute totals; the preview comes from backend `Decimal` arithmetic.
-6. Click **Confirm**. Expected: the draft clears, **Recent meals** gains the entry, and a new meal appears in `curl -s http://localhost:8000/api/meals` with `raw_input` `chick fil a sandwich`. Its item keeps the serving, `source`, `source_url`, `confidence`, and macro snapshot from the candidate.
+5. With the complete match selected, click **Add selected foods**. The food enters **Meal review**. Change its quantity there from `1.0000` to `2`. Expected: the **Meal review** preview doubles every macro value. The browser does not compute totals; the preview comes from backend `Decimal` arithmetic.
+6. Click **Confirm**. Expected: the draft clears, **Recent meals** gains the entry, and a new meal appears in `curl -s http://localhost:8000/api/meals` with `raw_input` `chick fil a sandwich`. Its item keeps the serving, `source`, `source_url`, `confidence`, and macro snapshot from the selected match.
 
 ## 3b. Reject USDA matches for the wrong food or brand
 
@@ -59,14 +67,14 @@ This case prevents FDC `170303` (**Chick-fil-A Chick-n-Strips**, `4 pieces` / `2
 
 1. In **Describe your meal**, type `chick fil a 12 count nuggets and mac and cheese`.
 2. Click **Find foods**.
-3. Expected: two `Web · low confidence` cards and two warnings reading `No USDA match found`.
+3. Expected: two `Web · low confidence` cards and a single shared `No USDA match found` warning (warnings are deduplicated across the foods of one request).
 4. The nugget card should show `12 nuggets` / `170 g` and `380` calories. It must **not** show `4 pieces`, `201 g`, or `Chick-n-Strips` values.
 5. The mac and cheese card should show `Medium` / `227 g` and `450` calories. It must **not** show `0.5 cup` or `113 g`. This expectation does not depend on the model populating the card's `brand` field: with an empty brand, a USDA **Branded** record is accepted only when the food name shares at least one word with the record's `brandOwner`/`brandName`, so the Blount entry is rejected either way.
 6. Spot-check that each card's `source_url` points to the Chick-fil-A nutrition page. Exact label wording can vary between model runs; the serving grams and macros should match the linked page.
 
 ## 4. Prove interpretation itself writes nothing
 
-Before clicking **Add** or **Confirm**, capture the counts:
+Before clicking **Add selected foods** or **Confirm**, capture the counts:
 
 ```bash
 backend/.venv/bin/python -c "import sqlite3; c=sqlite3.connect('backend/data/app.db'); print('foods, meals =', c.execute('select (select count(*) from foods), (select count(*) from meals)').fetchone())"
@@ -80,13 +88,13 @@ curl -s -X POST http://localhost:8000/api/meals/interpret \
   -d '{"description":"chick fil a sandwich"}'
 ```
 
-Expected: a JSON object with `candidates` and `warnings`. Run the same Python count command. Expected: **exactly the same** `foods, meals` pair. Interpretation is read-only; only **Add** saves a `Food` and only **Confirm** saves a `Meal`.
+Expected: a JSON object with `groups` and `warnings` (no `candidates` field). Run the same Python count command. Expected: **exactly the same** `foods, meals` pair. Interpretation is read-only; only **Add selected foods** saves a `Food` and only **Confirm** saves a `Meal`.
 
 ## 5. Exercise web-search fallback
 
 1. Describe a real but uncommon item, for example `McDonald's McLobster sandwich`, and click **Find foods**.
-2. Expected: a warning such as `USDA lookup unavailable`, `No USDA match found`, or `USDA record was incomplete; used web source`.
-3. Expected: a `Web · low confidence` card with a source URL. If all seven values are present, it can be added; if not, it shows its `missing_fields` and the label form.
+2. Expected: a warning such as `USDA lookup unavailable`, `No USDA match found`, or `USDA record was incomplete`.
+3. Expected: a `Web · low confidence` card with a source URL. If all seven values are present, **Add selected foods** saves it; if not, the card lists its `missing_fields`, **Add selected foods** stays hidden, and the selected card offers **Complete with a label**.
 4. Record the URL and spot-check that the displayed values match the linked page. Do not accept a card with no source URL and model-supplied numbers.
 
 ## 6. No-key and outage behavior

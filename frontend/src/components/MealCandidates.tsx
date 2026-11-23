@@ -14,6 +14,13 @@ type CompleteMatch = MatchView & MacroStrings;
 
 type Selection = { group: FoodMatchGroup; match: MatchView };
 
+function selectionKey(groupId: string, matchId: string): string {
+  // Match ids repeat across groups (each group has its own "web:0", and two
+  // groups can offer the same FDC record), so saved-food tracking keys on the
+  // group's selection, not the match alone.
+  return `${groupId}:${matchId}`;
+}
+
 const INITIAL_VISIBLE_MATCHES = 3;
 
 function errorMessage(cause: unknown): string {
@@ -151,6 +158,9 @@ export function MealCandidates({ rawInput, onAdd, onComplete }: Props) {
   const [searched, setSearched] = useState(false);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  // Matches whose Food already exists in the library. A retry after a partial
+  // failure skips them so the same food is never created twice.
+  const [createdKeys, setCreatedKeys] = useState<ReadonlySet<string>>(new Set());
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(
@@ -172,6 +182,16 @@ export function MealCandidates({ rawInput, onAdd, onComplete }: Props) {
     return entries;
   }
 
+  function clearPicker() {
+    setGroups([]);
+    setWarnings([]);
+    setSelected({});
+    setExpandedGroups({});
+    setSearched(false);
+    setCreatedKeys(new Set());
+    setAddError(null);
+  }
+
   async function handleFind() {
     controllerRef.current?.abort();
     const controller = new AbortController();
@@ -183,6 +203,9 @@ export function MealCandidates({ rawInput, onAdd, onComplete }: Props) {
     setSelected({});
     setExpandedGroups({});
     setSearched(false);
+    // Group ids and match ids repeat between searches, so a new search must
+    // not inherit the previous one's created-food tracking.
+    setCreatedKeys(new Set());
     setLoading(true);
     try {
       const result = await interpretMeal(rawInput.trim(), controller.signal);
@@ -226,18 +249,55 @@ export function MealCandidates({ rawInput, onAdd, onComplete }: Props) {
     if (complete.length === 0) {
       return;
     }
+    // A retry after a partial failure must not re-create foods that were
+    // already saved to the library.
+    const pending = complete.filter(
+      ({ group, match }) => !createdKeys.has(selectionKey(group.group_id, match.match_id)),
+    );
+    if (pending.length === 0) {
+      clearPicker();
+      return;
+    }
     setAdding(true);
     setAddError(null);
     try {
-      const savedFoods = await Promise.all(
-        complete.map(({ match }) => createFood(foodPayload(match))),
+      const results = await Promise.allSettled(
+        pending.map(({ match }) => createFood(foodPayload(match))),
       );
-      complete.forEach(({ group }, index) => {
-        const saved = savedFoods[index];
-        if (saved) {
-          onAdd(saved, group.quantity);
+      const created = new Set(createdKeys);
+      const added: { food: Food; quantity: string }[] = [];
+      const failed: { match: CompleteMatch; message: string }[] = [];
+      pending.forEach(({ group, match }, index) => {
+        const result = results[index];
+        if (result?.status === "fulfilled") {
+          created.add(selectionKey(group.group_id, match.match_id));
+          added.push({ food: result.value, quantity: group.quantity });
+        } else {
+          // allSettled keeps result and pending indexes aligned; a missing
+          // slot would mean the food was never attempted, so it stays a
+          // failure the next retry can pick up.
+          failed.push({
+            match,
+            message: result ? errorMessage(result.reason) : "Add never ran",
+          });
         }
       });
+      // Record created foods before any parent side effects so a retry can
+      // never re-create them.
+      setCreatedKeys(created);
+      added.forEach(({ food, quantity }) => onAdd(food, quantity));
+      if (failed.length > 0) {
+        // Keep the picker so the failed foods can be retried; the next attempt
+        // skips the matches that already saved successfully.
+        const failures = failed.map(({ match, message }) => `${match.name}: ${message}`);
+        setAddError(
+          `Could not add ${failures.join("; ")}. Retry adds only the failed foods; already added foods are kept.`,
+        );
+      } else {
+        // Nothing remains to retry: clear the picker so a second Add can never
+        // re-create the same foods.
+        clearPicker();
+      }
     } catch (cause) {
       setAddError(errorMessage(cause));
     } finally {
