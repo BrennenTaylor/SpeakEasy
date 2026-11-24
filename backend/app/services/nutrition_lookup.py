@@ -224,26 +224,29 @@ def _view(
     *,
     raw: RawCandidate,
     serving_label: str,
-    serving_grams: Decimal,
+    serving_grams: Decimal | None,
     source: str,
     source_url: str | None,
     confidence: str,
     name: str | None = None,
     brand: str | None = None,
 ) -> MatchView:
+    missing_fields = list(missing)
+    if serving_grams is None and "serving_grams" not in missing_fields:
+        missing_fields.append("serving_grams")
     payload: dict[str, object] = {
         # name/brand default to the AI candidate's claim; USDA callers override
         # them with the source record's own identity.
         "name": raw.name if name is None else name,
         "brand": raw.brand if brand is None else brand,
         "serving_label": serving_label,
-        "serving_grams": _quantize(serving_grams),
+        "serving_grams": None if serving_grams is None else _quantize(serving_grams),
         "quantity": _quantize(raw.quantity),
         "source": source,
         "source_url": source_url,
         "confidence": confidence,
-        "incomplete": bool(missing),
-        "missing_fields": missing,
+        "incomplete": bool(missing_fields),
+        "missing_fields": missing_fields,
         # Provisional match metadata: resolve_matches assigns the final values
         # via _match_view before any view leaves this module.
         "match_id": "",
@@ -259,13 +262,18 @@ def _web_view(raw: RawCandidate) -> tuple[MatchView, str | None]:
     url = str(raw.source_url) if raw.source_url is not None else None
     valid_url = url is not None and url.startswith(("http://", "https://")) and len(url) <= 500
     if valid_url:
-        values: dict[str, Decimal | None] = {
-            field: _quantize(getattr(raw, field)) for field in MACRO_FIELDS
-        }
+        values: dict[str, Decimal | None] = {}
+        missing: list[str] = []
+        for field in MACRO_FIELDS:
+            value = getattr(raw, field)
+            if value is None:
+                missing.append(field)
+            else:
+                values[field] = _quantize(value)
         return (
             _view(
                 values,
-                [],
+                missing,
                 raw=raw,
                 serving_label=raw.serving_label,
                 serving_grams=raw.serving_grams,
@@ -275,10 +283,13 @@ def _web_view(raw: RawCandidate) -> tuple[MatchView, str | None]:
             ),
             None,
         )
+    missing = ["source_url", *MACRO_FIELDS]
+    if raw.serving_grams is None:
+        missing.append("serving_grams")
     return (
         _view(
             {field: None for field in MACRO_FIELDS},
-            ["source_url", *MACRO_FIELDS],
+            missing,
             raw=raw,
             serving_label=raw.serving_label,
             serving_grams=raw.serving_grams,

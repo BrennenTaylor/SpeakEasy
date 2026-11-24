@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
@@ -23,6 +25,32 @@ def test_provider_total_is_ignored() -> None:
         }
     )
     assert not hasattr(raw, "total_calories")
+
+
+def test_blank_model_values_become_missing() -> None:
+    raw = RawCandidate.model_validate(
+        {
+            "name": "Waikiki Platter",
+            "brand": "Yummi Sushi",
+            "serving_label": "5 pieces",
+            "serving_grams": "",
+            "quantity": "1",
+            "calories": "190",
+            "protein_g": "9",
+            "carbs_g": "27",
+            "fat_g": "4.5",
+            "fiber_g": "",
+            "sugar_g": "",
+            "sodium_mg": "280",
+            "source_url": "",
+        }
+    )
+
+    assert raw.serving_grams is None
+    assert raw.fiber_g is None
+    assert raw.sugar_g is None
+    assert raw.source_url is None
+    assert raw.calories == Decimal("190")
 
 
 def test_out_of_range_macro_is_rejected() -> None:

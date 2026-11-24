@@ -69,7 +69,7 @@ const webFood: Food = {
   name: webMatch.name,
   brand: webMatch.brand,
   serving_label: webMatch.serving_label,
-  serving_grams: webMatch.serving_grams,
+  serving_grams: webMatch.serving_grams ?? "",
   source: "web_search",
   source_url: webMatch.source_url,
   confidence: "low",
@@ -89,7 +89,7 @@ const stripsFood: Food = {
   name: stripsMatch.name,
   brand: stripsMatch.brand,
   serving_label: stripsMatch.serving_label,
-  serving_grams: stripsMatch.serving_grams,
+  serving_grams: stripsMatch.serving_grams ?? "",
   source: "usda_fdc",
   source_url: stripsMatch.source_url,
   confidence: "high",
@@ -196,6 +196,37 @@ describe("MealCandidates", () => {
       expect.objectContaining({ match_id: "web:0", source_url: null }),
     );
     expect(mocks.createFood).not.toHaveBeenCalled();
+  });
+
+  it("shows a missing serving weight without inventing one", async () => {
+    mocks.interpretMeal.mockResolvedValue({
+      groups: [
+        {
+          group_id: "0",
+          label: "Waikiki Platter",
+          quantity: "1",
+          matches: [
+            {
+              ...webMatch,
+              serving_label: "5 pieces",
+              serving_grams: null,
+              fiber_g: null,
+              sugar_g: null,
+              incomplete: true,
+              missing_fields: ["serving_grams", "fiber_g", "sugar_g"],
+            },
+          ],
+        },
+      ],
+      warnings: [],
+    });
+    render(<MealCandidates rawInput="sushi platter" onAdd={vi.fn()} onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /find foods/i }));
+
+    const serving = await screen.findByText(/5 pieces/);
+    expect(serving.textContent).not.toMatch(/\(\s*g\)/);
+    expect(screen.getByText(/missing: serving_grams/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add selected foods/i })).not.toBeInTheDocument();
   });
 
   it("shows a source badge and adds the default complete selection", async () => {

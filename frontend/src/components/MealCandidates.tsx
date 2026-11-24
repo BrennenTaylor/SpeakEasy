@@ -10,7 +10,7 @@ type Props = {
   onComplete?: (match: MatchView) => void;
 };
 
-type CompleteMatch = MatchView & MacroStrings;
+type CompleteMatch = Omit<MatchView, "serving_grams"> & MacroStrings & { serving_grams: string };
 
 type Selection = { group: FoodMatchGroup; match: MatchView };
 
@@ -28,7 +28,11 @@ function errorMessage(cause: unknown): string {
 }
 
 function isCompleteMatch(match: MatchView): match is CompleteMatch {
-  return !match.incomplete && MACRO_ROWS.every(({ key }) => typeof match[key] === "string");
+  return (
+    !match.incomplete &&
+    typeof match.serving_grams === "string" &&
+    MACRO_ROWS.every(({ key }) => typeof match[key] === "string")
+  );
 }
 
 function badgeFor(match: MatchView): { label: string; low: boolean } {
@@ -90,7 +94,8 @@ function MatchCard({
           <span className="block break-words text-sm font-medium text-gray-900">{match.name}</span>
           <span className="block break-words text-xs text-gray-600">
             {match.brand && <span>{match.brand} · </span>}
-            {match.serving_label} ({match.serving_grams} g)
+            {match.serving_label}
+            {match.serving_grams !== null && ` (${match.serving_grams} g)`}
           </span>
         </span>
         <span
