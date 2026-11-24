@@ -656,6 +656,48 @@ describe("MealLogger", () => {
     });
   });
 
+  it("ignores a late preview response from an obsolete quantity", async () => {
+    const user = userEvent.setup();
+    const stale = deferred<Response>();
+    const fresh = deferred<Response>();
+    const fetchMock = stubFetch({ previewResponses: [stale.promise, fresh.promise] });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "one portion of nuggets",
+    );
+    await addNuggets(user);
+    await waitFor(() => expect(previewCalls(fetchMock)).toHaveLength(1));
+
+    const confirm = screen.getByRole("button", { name: /^confirm$/i });
+    expect(confirm).toBeDisabled();
+
+    const quantity = screen.getByRole("textbox", { name: /quantity for costco nuggets/i });
+    fireEvent.change(quantity, { target: { value: "2" } });
+    await waitFor(() => expect(previewCalls(fetchMock)).toHaveLength(2));
+    expect(confirm).toBeDisabled();
+    await user.click(confirm);
+    expect(findCall(fetchMock, "/api/meals", "POST")).toBeUndefined();
+
+    stale.resolve(jsonResponse({ ...previewTotals, calories: "111.0000" }));
+    await waitFor(() => expect(screen.queryByText("111.0000")).not.toBeInTheDocument());
+    expect(screen.queryByText("250.0000")).not.toBeInTheDocument();
+    expect(confirm).toBeDisabled();
+    expect(findCall(fetchMock, "/api/meals", "POST")).toBeUndefined();
+
+    fresh.resolve(jsonResponse(previewTotals));
+    expect(await screen.findByText("250.0000")).toBeInTheDocument();
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    const createCall = findCall(fetchMock, "/api/meals", "POST");
+    expect(createCall).toBeDefined();
+    expect(JSON.parse(String(createCall?.[1]?.body)).items).toEqual([
+      { food_id: 1, quantity: "2", unit: "serving" },
+    ]);
+  });
+
   it("disables Confirm while a preview for the edited quantity is pending", async () => {
     const user = userEvent.setup();
     const pending = deferred<Response>();

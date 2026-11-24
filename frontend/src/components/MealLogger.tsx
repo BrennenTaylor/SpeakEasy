@@ -136,6 +136,9 @@ export function MealLogger() {
   }, []);
 
   useEffect(() => {
+    // Every description change must route through invalidatePreview. Bump here
+    // too so a future setter that skips it cannot leave stale totals confirmable.
+    previewVersionRef.current += 1;
     const isBlank = rawInput.trim() === "";
     const justBecameNonBlank = wasBlankRef.current && !isBlank;
     wasBlankRef.current = isBlank;

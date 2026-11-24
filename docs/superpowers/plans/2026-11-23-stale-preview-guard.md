@@ -103,7 +103,7 @@ Add `previewVersionRef = useRef(0)` and `reviewedVersionRef = useRef<number | nu
 
 Add a stable `invalidatePreview()` callback that aborts and clears `previewControllerRef`, increments `previewVersionRef`, sets `reviewedVersionRef.current = null`, and clears `totals` and `error`.
 
-Call `invalidatePreview()` at the start of the description effect, `handleAdd`, `handleQuantityChange`, and `handleRemove`. Keep their existing state and preview calls after that.
+Call `invalidatePreview()` from the textarea `onChange` handler, `handleAdd`, `handleQuantityChange`, `handleRemove`, and the successful confirm reset. Keep their existing state and preview calls after that. The original plan placed invalidation at the start of the description effect, but `react-hooks/set-state-in-effect` rejects the synchronous `setTotals`/`setError` calls there; event-time invalidation also avoids a stale-totals paint. The effect now bumps `previewVersionRef` as lint-legal defense-in-depth.
 
 In `runPreview`, capture `const version = previewVersionRef.current;` before the request. In the success handler, return when `version !== previewVersionRef.current || controller.signal.aborted`; otherwise call `setTotals(result)` and set `reviewedVersionRef.current = version`. In the failure handler, return on the same stale check; otherwise clear totals, clear the reviewed version, and set the error.
 
