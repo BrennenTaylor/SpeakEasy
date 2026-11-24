@@ -63,6 +63,8 @@ export function MealLogger() {
   const [foodPrefill, setFoodPrefill] = useState<FoodPrefill | null>(null);
 
   const previewControllerRef = useRef<AbortController | null>(null);
+  const previewVersionRef = useRef(0);
+  const reviewedVersionRef = useRef<number | null>(null);
   const nextItemIdRef = useRef(1);
   const itemsRef = useRef(items);
   const wasBlankRef = useRef(true);
@@ -95,7 +97,17 @@ export function MealLogger() {
     itemsRef.current = items;
   }, [items]);
 
+  const invalidatePreview = useCallback(() => {
+    previewControllerRef.current?.abort();
+    previewControllerRef.current = null;
+    previewVersionRef.current += 1;
+    reviewedVersionRef.current = null;
+    setTotals(null);
+    setError(null);
+  }, []);
+
   const runPreview = useCallback((nextRawInput: string, nextItems: ReviewItem[]) => {
+    const version = previewVersionRef.current;
     previewControllerRef.current?.abort();
     previewControllerRef.current = null;
     if (nextItems.length === 0 || nextRawInput.trim() === "") {
@@ -107,19 +119,26 @@ export function MealLogger() {
     previewControllerRef.current = controller;
     previewMeal(payloadFor(nextRawInput, nextItems), controller.signal)
       .then((result) => {
-        if (!controller.signal.aborted) {
-          setTotals(result);
+        if (version !== previewVersionRef.current || controller.signal.aborted) {
+          return;
         }
+        setTotals(result);
+        reviewedVersionRef.current = version;
       })
       .catch((cause: unknown) => {
-        if (!controller.signal.aborted) {
-          setTotals(null);
-          setError(errorMessage(cause));
+        if (version !== previewVersionRef.current || controller.signal.aborted) {
+          return;
         }
+        setTotals(null);
+        reviewedVersionRef.current = null;
+        setError(errorMessage(cause));
       });
   }, []);
 
   useEffect(() => {
+    // Every description change must route through invalidatePreview. Bump here
+    // too so a future setter that skips it cannot leave stale totals confirmable.
+    previewVersionRef.current += 1;
     const isBlank = rawInput.trim() === "";
     const justBecameNonBlank = wasBlankRef.current && !isBlank;
     wasBlankRef.current = isBlank;
@@ -133,33 +152,44 @@ export function MealLogger() {
     return () => window.clearTimeout(timer);
   }, [rawInput, runPreview]);
 
+  function handleRawInputChange(value: string) {
+    invalidatePreview();
+    setRawInput(value);
+  }
+
   function handleAdd(food: Food, quantity = "1") {
+    invalidatePreview();
     // Build from the ref and update it synchronously: the picker adds every
     // selected group in one tick, so the render-closure `items` would be stale
     // for all but the first call and drop foods from the review.
     const nextItems = [...itemsRef.current, { id: nextItemIdRef.current++, food, quantity }];
     itemsRef.current = nextItems;
-    setError(null);
     setItems(nextItems);
     runPreview(rawInput, nextItems);
   }
 
   function handleQuantityChange(itemId: number, quantity: string) {
+    invalidatePreview();
     const nextItems = items.map((item) => (item.id === itemId ? { ...item, quantity } : item));
-    setError(null);
     setItems(nextItems);
     runPreview(rawInput, nextItems);
   }
 
   function handleRemove(itemId: number) {
+    invalidatePreview();
     const nextItems = items.filter((item) => item.id !== itemId);
-    setError(null);
     setItems(nextItems);
     runPreview(rawInput, nextItems);
   }
 
   async function handleConfirm() {
-    if (rawInput.trim() === "" || items.length === 0 || totals === null || submitting) {
+    if (
+      rawInput.trim() === "" ||
+      items.length === 0 ||
+      totals === null ||
+      submitting ||
+      reviewedVersionRef.current !== previewVersionRef.current
+    ) {
       return;
     }
     setError(null);
@@ -167,9 +197,9 @@ export function MealLogger() {
     previewControllerRef.current?.abort();
     try {
       await createMeal(payloadFor(rawInput, items));
+      invalidatePreview();
       setRawInput("");
       setItems([]);
-      setTotals(null);
       setReloadKey((key) => key + 1);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -197,7 +227,7 @@ export function MealLogger() {
           id="meal-raw-input"
           rows={2}
           value={rawInput}
-          onChange={(event) => setRawInput(event.target.value)}
+          onChange={(event) => handleRawInputChange(event.target.value)}
           placeholder="e.g. two servings of nuggets"
           className="w-full min-w-0 rounded border border-gray-300 px-3 py-2 text-sm"
         />
