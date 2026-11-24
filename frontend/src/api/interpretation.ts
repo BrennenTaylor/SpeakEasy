@@ -5,7 +5,7 @@ export type MatchView = {
   name: string;
   brand: string;
   serving_label: string;
-  serving_grams: string;
+  serving_grams: string | null;
   quantity: string;
   source: "usda_fdc" | "web_search";
   source_url: string | null;
@@ -56,7 +56,7 @@ function isMatchView(value: unknown): value is MatchView {
     typeof value.name === "string" &&
     typeof value.brand === "string" &&
     typeof value.serving_label === "string" &&
-    typeof value.serving_grams === "string" &&
+    isNullableString(value.serving_grams) &&
     typeof value.quantity === "string" &&
     (value.source === "usda_fdc" || value.source === "web_search") &&
     isNullableString(value.source_url) &&

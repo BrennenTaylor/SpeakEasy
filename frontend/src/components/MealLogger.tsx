@@ -37,7 +37,7 @@ function prefillFromMatch(match: MatchView): FoodPrefill {
     name: match.name,
     brand: match.brand,
     serving_label: match.serving_label,
-    serving_grams: match.serving_grams,
+    serving_grams: text(match.serving_grams),
     calories: text(match.calories),
     protein_g: text(match.protein_g),
     carbs_g: text(match.carbs_g),

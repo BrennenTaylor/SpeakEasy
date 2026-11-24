@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from app.schemas.common import DecimalText
 
@@ -15,16 +15,40 @@ class RawCandidate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     brand: str = Field(max_length=200)
     serving_label: str = Field(min_length=1, max_length=100)
-    serving_grams: DecimalText = Field(gt=0, le=50_000)
+    serving_grams: DecimalText | None = None
     quantity: DecimalText = Field(gt=0, le=20)
-    calories: Calories
-    protein_g: MacroGrams
-    carbs_g: MacroGrams
-    fat_g: MacroGrams
-    fiber_g: MacroGrams
-    sugar_g: MacroGrams
-    sodium_mg: SodiumMg
+    calories: Calories | None = None
+    protein_g: MacroGrams | None = None
+    carbs_g: MacroGrams | None = None
+    fat_g: MacroGrams | None = None
+    fiber_g: MacroGrams | None = None
+    sugar_g: MacroGrams | None = None
+    sodium_mg: SodiumMg | None = None
     source_url: HttpUrl | None = None
+
+    @field_validator(
+        "serving_grams",
+        "calories",
+        "protein_g",
+        "carbs_g",
+        "fat_g",
+        "fiber_g",
+        "sugar_g",
+        "sodium_mg",
+        mode="before",
+    )
+    @classmethod
+    def _blank_number_is_missing(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("source_url", mode="before")
+    @classmethod
+    def _blank_url_is_missing(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class MatchView(BaseModel):
@@ -33,7 +57,7 @@ class MatchView(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     brand: str = Field(max_length=200)
     serving_label: str = Field(min_length=1, max_length=100)
-    serving_grams: DecimalText
+    serving_grams: DecimalText | None = None
     quantity: DecimalText
     source: Literal["usda_fdc", "web_search"]
     source_url: HttpUrl | None = None

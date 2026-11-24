@@ -460,6 +460,23 @@ def test_resolve_matches_keeps_url_less_draft() -> None:
     assert any("source_url" in warning for warning in warnings)
 
 
+def test_web_card_marks_missing_serving_grams_and_macros() -> None:
+    client = mock_client({"foods": []}, {})
+
+    matches, _ = resolve_matches(
+        raw(serving_grams=None, fiber_g=None, sugar_g=None), api_key="free-key", client=client
+    )
+
+    assert len(matches) == 1
+    web = matches[0]
+    assert web.serving_grams is None
+    assert web.calories is not None
+    assert web.fiber_g is None
+    assert web.sugar_g is None
+    assert {"serving_grams", "fiber_g", "sugar_g"} <= set(web.missing_fields)
+    assert web.incomplete is True
+
+
 def test_resolve_matches_deduplicates_within_source_only() -> None:
     food = _fdc_food("201")
     food["fdcId"] = 170790

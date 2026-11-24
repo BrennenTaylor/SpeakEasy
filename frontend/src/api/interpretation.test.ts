@@ -68,6 +68,30 @@ describe("interpretation client", () => {
     expect(timeoutSpy).toHaveBeenCalledWith(60_000);
   });
 
+  it("accepts a match whose serving grams and macros are missing", async () => {
+    const payload = {
+      ...result,
+      groups: [
+        {
+          ...group,
+          matches: [
+            {
+              ...match,
+              serving_grams: null,
+              fiber_g: null,
+              sugar_g: null,
+              incomplete: true,
+              missing_fields: ["serving_grams", "fiber_g", "sugar_g"],
+            },
+          ],
+        },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(payload)));
+
+    await expect(interpretMeal("sushi platter")).resolves.toEqual(payload);
+  });
+
   it("passes a caller signal through to the request", async () => {
     const controller = new AbortController();
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(result));
