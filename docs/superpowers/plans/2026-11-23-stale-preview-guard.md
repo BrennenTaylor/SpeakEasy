@@ -42,7 +42,7 @@
 - Consumes: `previewMeal(payload, signal)` from `../api/meals`; `MealReview` props `totals`, `canConfirm`, and `submitting`.
 - Produces: no new exported API. Internal refs `previewVersionRef` and `reviewedVersionRef` govern state writes and confirmation.
 
-- [ ] **Step 1: Add deterministic fetch helpers to `MealLogger.test.tsx`**
+- [x] **Step 1: Add deterministic fetch helpers to `MealLogger.test.tsx`**
 
 Add a deferred-promise helper and let `StubOptions` queue preview responses in order:
 
@@ -60,7 +60,7 @@ function deferred<T>() {
 
 Add `previewResponses?: Promise<Response>[]` to `StubOptions`. In the `/api/meals/preview` branch, return `options.previewResponses?.shift()` when present; otherwise keep the existing resolved response. Add a `previewCalls(stub)` helper that filters mock calls for `POST /api/meals/preview`.
 
-- [ ] **Step 2: Write the failing regression tests**
+- [x] **Step 2: Write the failing regression tests**
 
 Add three tests to `MealLogger.test.tsx`:
 
@@ -92,12 +92,12 @@ it("invalidates totals when an item is removed during a pending preview", async 
 
 Use `await user.clear(quantity)`, `await user.type(quantity, "2")`, and `await waitFor(...)` exactly as the surrounding tests do. Use `jsonResponse({ ...previewTotals, calories: "111.0000" })` for stale success bodies.
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `cd frontend && npm run test -- src/components/MealLogger.test.tsx`
 Expected: the three new tests fail. The current code leaves stale totals visible, re-enables Confirm from stale responses, or shows a stale error.
 
-- [ ] **Step 4: Implement the version guard in `MealLogger.tsx`**
+- [x] **Step 4: Implement the version guard in `MealLogger.tsx`**
 
 Add `previewVersionRef = useRef(0)` and `reviewedVersionRef = useRef<number | null>(null)` beside the existing refs.
 
@@ -109,12 +109,12 @@ In `runPreview`, capture `const version = previewVersionRef.current;` before the
 
 In `handleConfirm`, keep the existing guard and add `reviewedVersionRef.current !== previewVersionRef.current` as a reason to return before `createMeal`.
 
-- [ ] **Step 5: Run the focused tests to verify they pass**
+- [x] **Step 5: Run the focused tests to verify they pass**
 
 Run: `cd frontend && npm run test -- src/components/MealLogger.test.tsx`
 Expected: all tests pass, including the existing preview failure and cleared-description tests.
 
-- [ ] **Step 6: Add the QA runbook**
+- [x] **Step 6: Add the QA runbook**
 
 Create `docs/qa/2026-11-23-stale-preview-guard.md`. Include:
 
@@ -124,16 +124,16 @@ Create `docs/qa/2026-11-23-stale-preview-guard.md`. Include:
 - A failure case: stop the backend during a preview, verify the error and no save, restart, edit the quantity, and verify recovery.
 - A limitation note: this task does not address serving-basis conversion or idempotent saves (backlog tasks 2 and 6).
 
-- [ ] **Step 7: Mark the backlog item complete**
+- [x] **Step 7: Mark the backlog item complete**
 
 Change `- [ ] 1. Confirm only the quantity the user reviewed` to `- [x] 1. Confirm only the quantity the user reviewed` in `docs/opencode-meal-logging-backlog.md`. Leave tasks 2 through 44 unchecked.
 
-- [ ] **Step 8: Run the full gate**
+- [x] **Step 8: Run the full gate**
 
 Run: `make check`
 Expected: lint, format, mypy, TypeScript, backend pytest, frontend vitest, migration round trip, and production build all pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add frontend/src/components/MealLogger.tsx \

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -150,6 +150,7 @@ const twoGroupInterpretation = {
 type StubOptions = {
   preview?: MacroStrings;
   previewStatus?: number;
+  previewResponses?: Promise<Response>[];
   meals?: Meal[];
   confirmStatus?: number;
   confirmBody?: unknown;
@@ -162,6 +163,16 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 function stubFetch(options: StubOptions = {}) {
@@ -191,6 +202,10 @@ function stubFetch(options: StubOptions = {}) {
       );
     }
     if (url.startsWith("/api/meals/preview")) {
+      const queued = options.previewResponses?.shift();
+      if (queued) {
+        return queued;
+      }
       const status = options.previewStatus ?? 200;
       return Promise.resolve(
         jsonResponse(
@@ -232,6 +247,12 @@ function lastPreviewPayload(stub: FetchStub) {
 
 function lastPreviewItems(stub: FetchStub) {
   return lastPreviewPayload(stub).items;
+}
+
+function previewCalls(stub: FetchStub) {
+  return stub.mock.calls.filter(
+    ([input, init]) => String(input) === "/api/meals/preview" && init?.method === "POST",
+  );
 }
 
 function elementAt<T>(elements: T[], index: number): T {
@@ -633,5 +654,110 @@ describe("MealLogger", () => {
       expect(body.confidence).toBe("low");
       expect(body.sugar_g).toBe("1");
     });
+  });
+
+  it("disables Confirm while a preview for the edited quantity is pending", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<Response>();
+    const fetchMock = stubFetch({
+      previewResponses: [Promise.resolve(jsonResponse(previewTotals)), pending.promise],
+    });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "one portion of nuggets",
+    );
+    await addNuggets(user);
+    expect(await screen.findByText("250.0000")).toBeInTheDocument();
+    const confirm = () => screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm()).toBeEnabled());
+
+    const quantity = screen.getByRole("textbox", { name: /quantity for costco nuggets/i });
+    fireEvent.change(quantity, { target: { value: "2" } });
+    await waitFor(() => expect(previewCalls(fetchMock)).toHaveLength(2));
+    expect(confirm()).toBeDisabled();
+    expect(screen.queryByText("250.0000")).not.toBeInTheDocument();
+    await user.click(confirm());
+    expect(findCall(fetchMock, "/api/meals", "POST")).toBeUndefined();
+
+    pending.resolve(jsonResponse({ ...previewTotals, calories: "500.0000" }));
+    expect(await screen.findByText("500.0000")).toBeInTheDocument();
+    await waitFor(() => expect(confirm()).toBeEnabled());
+    await user.click(confirm());
+
+    const createCall = findCall(fetchMock, "/api/meals", "POST");
+    expect(createCall).toBeDefined();
+    expect(JSON.parse(String(createCall?.[1]?.body)).items).toEqual([
+      { food_id: 1, quantity: "2", unit: "serving" },
+    ]);
+  });
+
+  it("ignores a late failure from a stale preview", async () => {
+    const user = userEvent.setup();
+    const stale = deferred<Response>();
+    const fetchMock = stubFetch({ previewResponses: [stale.promise] });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "one portion of nuggets",
+    );
+    await addNuggets(user);
+    await waitFor(() => expect(previewCalls(fetchMock)).toHaveLength(1));
+
+    const quantity = screen.getByRole("textbox", { name: /quantity for costco nuggets/i });
+    fireEvent.change(quantity, { target: { value: "2" } });
+    expect(await screen.findByText("250.0000")).toBeInTheDocument();
+
+    const confirm = () => screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm()).toBeEnabled());
+    stale.reject(new Error("obsolete request failed"));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(confirm()).toBeEnabled();
+    expect(findCall(fetchMock, "/api/meals", "POST")).toBeUndefined();
+  });
+
+  it("keeps Confirm disabled while a preview for the edited item list is pending", async () => {
+    const user = userEvent.setup();
+    const pendingAdd = deferred<Response>();
+    const pendingRemove = deferred<Response>();
+    const fetchMock = stubFetch({
+      previewResponses: [
+        Promise.resolve(jsonResponse(previewTotals)),
+        pendingAdd.promise,
+        pendingRemove.promise,
+      ],
+    });
+    render(<MealLogger />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /describe your meal/i }),
+      "two portions of nuggets",
+    );
+    await addNuggets(user);
+    expect(await screen.findByText("250.0000")).toBeInTheDocument();
+    const confirm = () => screen.getByRole("button", { name: /^confirm$/i });
+    await waitFor(() => expect(confirm()).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: /add costco nuggets/i }));
+    await waitFor(() => expect(previewCalls(fetchMock)).toHaveLength(2));
+    expect(confirm()).toBeDisabled();
+    expect(screen.queryByText("250.0000")).not.toBeInTheDocument();
+
+    await user.click(
+      elementAt(screen.getAllByRole("button", { name: /remove costco nuggets/i }), 0),
+    );
+    await waitFor(() => expect(previewCalls(fetchMock)).toHaveLength(3));
+    expect(confirm()).toBeDisabled();
+
+    pendingAdd.resolve(jsonResponse({ ...previewTotals, calories: "222.0000" }));
+    await waitFor(() => expect(screen.queryByText("222.0000")).not.toBeInTheDocument());
+    expect(confirm()).toBeDisabled();
+
+    pendingRemove.resolve(jsonResponse({ ...previewTotals, calories: "300.0000" }));
+    expect(await screen.findByText("300.0000")).toBeInTheDocument();
+    await waitFor(() => expect(confirm()).toBeEnabled());
   });
 });

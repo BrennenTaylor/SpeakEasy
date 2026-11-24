@@ -20,7 +20,7 @@
 
 ## Milestone 1 · Trust the log
 
-### [ ] 1. Confirm only the quantity the user reviewed
+### [x] 1. Confirm only the quantity the user reviewed
 
 **Reproduce.** Add one serving of a saved food, wait for totals, change the quantity to two, and tap Confirm while the second preview is still pending. The current UI can show the one-serving total and post two servings.
 
